@@ -133,14 +133,14 @@ def do_all_layers(inputNumber):
     temp = inputMatrix[inputNumber]
     print temp.shape, weightMatrix.shape
     symTemp = np.identity(temp.shape[1])
-    print "SymTemp is an identy matrix of shape", symTemp.shape
+    #print "SymTemp is an identy matrix of shape", symTemp.shape
     for i in range(len(weightMatrix)):
         temp = relu_layer_forward(temp, weightMatrix[i], biasMatrix[i])
         symTemp = sym_relu_layer_forward(symTemp, weightMatrix[i])
     maxValue=0
     maxIndex=-1
     for i in range(temp.shape[1]):
-        print "Class",i," confidence:",temp[0][i]
+        print "Class",i,"confidence",temp[0][i]
         if(temp[0][i] > maxValue):
             maxValue = temp[0][i]
             maxIndex = i
@@ -149,7 +149,8 @@ def do_all_layers(inputNumber):
     #print symTemp[maxIndex]
 
 init("./example_10.txt", "./mnist_3A_layer.txt", 1, 784)
-do_all_layers(0)
+for i in range(len(inputMatrix)):
+    do_all_layers(i)
     
 #init_simple()
 #print "layer0",layer0

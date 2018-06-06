@@ -91,12 +91,12 @@ def im2col_indices(input, section_height, section_width, padding=1, stride=1):
 
 def im2col_sliding_strided(A, block_shape, stepsize=1):
     m,n,d = A.shape
-    print "Im2col input shape:",m, n
+    #print "Im2col input shape:",m, n
     s0, s1, s2 = A.strides   
-    print "Im2col input strides(??)",s0, s1 
+    #print "Im2col input strides",s0, s1 
     nrows = m-block_shape[0]+1
     ncols = n-block_shape[1]+1
-    print "Im2col output # of rows, cols:",nrows, ncols
+    #print "Im2col output # of rows, cols:",nrows, ncols
     shp = block_shape[0],block_shape[1],nrows,ncols
     print shp
     strd = s0,s1,s0,s1
@@ -105,22 +105,22 @@ def im2col_sliding_strided(A, block_shape, stepsize=1):
     return out_view.reshape(block_shape[0]*block_shape[1],-1)[:,::stepsize]
 
 def conv_layer_forward(input, filter, b, stride=1, padding=1):
-    print "Conv: input shape",input.shape
+    #print "Conv: input shape",input.shape
     h_x, w_x, d_x = input.shape #Still assuming one 2D image at a time for now, so we omit the n_x and d_x should always be 1
-    print "Conv: filter shape",filter.shape
+    #print "Conv: filter shape",filter.shape
     n_filters, h_filter, w_filter = filter.shape
     h_out = (h_x - h_filter + 2 * padding) / stride + 1
     w_out = (w_x - w_filter + 2 * padding) / stride + 1
     input_col = im2col_sliding_strided(input, (h_filter, w_filter), stride) #im2col(input, filter.shape[0], filter.shape[1], padding=padding, stride=stride)
-    print "Input_col shape",input_col.shape
+    #print "Input_col shape",input_col.shape
     filter_col = filter.reshape(n_filters, -1)
-    print "Filter_col shape",filter_col.shape
+    #print "Filter_col shape",filter_col.shape
     converted_biases = np.array(b).reshape(-1, 1)
-    print "10x1?",converted_biases.shape
+    #print "10x1?",converted_biases.shape
     out = np.add(np.dot(filter_col, input_col), converted_biases)
     out = out.reshape(n_filters, h_out, w_out) #(n_filters, h_out, w_out, n_x) if multi-input
     #out = out.transpose(3, 0, 1, 2) #Turns it back to (n_x, n_filters, h_out, w_out), but we don't need that since we don't have multiple inputs
-    print "output shape",out.shape
+    #print "output shape",out.shape
     return out;
     
 def relu_layer_forward(x):
@@ -164,10 +164,10 @@ def reshape_fc_weight_matrix(fcWeights, proper_shape):
     temp = np.empty((n_filters, proper_height, proper_width))
     #Each column of an FC weight matrix is a filter that will be placed over the entire input. We want to turn each of them into a proper_height x proper_width matrix, and end up with something of shape (n_filters, proper_height, proper_width). 
     for i in range(n_filters):
-        for j in range(proper_width):
-            for k in range(proper_height):
+        for j in range(proper_height):
+            for k in range(proper_width):
                 index = j*proper_width + k
-                temp[i][k][j] = fcWeights[index][i]
+                temp[i][j][k] = fcWeights[index][i]
     return temp
     
 def do_all_layers(inputNumber, padding, stride):
@@ -180,10 +180,10 @@ def do_all_layers(inputNumber, padding, stride):
         #If we're not doing an FC->Conv conversion, take out this next line
         weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape)
         print "Shape of weight matrix:",weightMatrix[i].shape
-        print "Number of biases:",len(biasMatrix[i])
+        #print "Number of biases:",len(biasMatrix[i])
         temp = conv_layer_forward(temp, weightMatrix[i], biasMatrix[i], stride, padding)
         temp = relu_layer_forward(temp)
     classify(temp)
-    
-init("./example_10.txt", "./mnist_3A_layer.txt", 28, 28)
-do_all_layers(8, 0, 1)
+
+init("./example_10.txt", "./mnist_3A_layer.txt", 28, 28)    
+do_all_layers(9, 0, 1)
