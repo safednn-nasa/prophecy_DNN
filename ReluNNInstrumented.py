@@ -57,7 +57,7 @@ def read_inputs_from_file(inputFile, height, width):
             count = 0
             for i in range(height):
                 for j in range(width):
-                    inputMatrix[l][i][j] = k[count]
+                    inputMatrix[l][i][j] = k[count] + 0.5
                     count += 1
                     
 def read_weights_from_file(inputFile):
@@ -89,9 +89,11 @@ def read_weights_from_file(inputFile):
             
 def relu_layer_forward(input, weights, b):
     out = np.add(np.dot(input, weights), b)
+    print out
     relu = lambda x: x * (x > 0).astype(float)
     return relu(out);
     
+#The transposes here are to make sure the output reads row-wise for the neurons in a layer, as opposed to row-wise for the pixels, i.e. out[i] is the coefficients for the ith neuron in terms of pixels 0...n-1. If you out[i] to show a pixel's impact on each neuron, remove the .transpose() calls. 
 def sym_relu_layer_forward(input, weights):
     out = np.dot(input.transpose(), weights)
     out = out.transpose()
@@ -133,7 +135,7 @@ def do_all_layers(inputNumber):
     temp = inputMatrix[inputNumber]
     print temp.shape, weightMatrix.shape
     symTemp = np.identity(temp.shape[1])
-    #print "SymTemp is an identy matrix of shape", symTemp.shape
+    #print "SymTemp is an identity matrix of shape", symTemp.shape
     for i in range(len(weightMatrix)):
         temp = relu_layer_forward(temp, weightMatrix[i], biasMatrix[i])
         symTemp = sym_relu_layer_forward(symTemp, weightMatrix[i])
@@ -149,8 +151,8 @@ def do_all_layers(inputNumber):
     #print symTemp[maxIndex]
 
 init("./example_10.txt", "./mnist_3A_layer.txt", 1, 784)
-for i in range(len(inputMatrix)):
-    do_all_layers(i)
+#for i in range(len(inputMatrix)):
+do_all_layers(0)
     
 #init_simple()
 #print "layer0",layer0
