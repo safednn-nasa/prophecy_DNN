@@ -151,7 +151,10 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1):
                     #do a dot product between filter and current piece of padded input
                     #print filters[i,l].shape
                     #print input_padded[j:j+h_filter,k:k+w_filter,l].shape
-                    out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[i,l], input_padded[j:j+h_filter,k:k+w_filter,l]))
+                    for m in range(h_filter):
+                        for n in range(w_filter):
+                            out[j,k,i] = out[j,k,i] + filters[i,l,m,n] * input_padded[j+m,k+n,l]
+                    #out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[i,l], input_padded[j:j+h_filter,k:k+w_filter,l]))
                 out[j,k,i] = out[j,k,i] + biases[i]
                 #print out[j,k,i]
     print "output shape",out.shape,"\n"
