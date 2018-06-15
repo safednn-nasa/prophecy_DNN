@@ -131,7 +131,6 @@ def conv_layer_forward(input, filter, b, stride=1, padding=1):
     print "output shape",out.shape,"\n"
     return out;
     
-#TODO: Finish this for-loop version for individual images. No n_x here.
 def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1):
     print "Beginning conv layer"
     h_x, w_x, d_x = input.shape 
@@ -142,7 +141,10 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1):
     input_padded = np.pad(input,((padding, padding),(padding, padding),(0,0)),mode='constant')
     print input_padded.shape, filters.shape
     out = np.zeros((h_out, w_out, n_filters))
+    #print input_padded[4,0:w_filter,0]
+    #print filters[0,0,0:h_filter,0:w_filter]
     for i in range(n_filters):
+        #print filters[i]
         for j in range(0, h_out, stride):
             for k in range(0, w_out, stride):
                 for l in range(d_x):
@@ -151,6 +153,7 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1):
                     #print input_padded[j:j+h_filter,k:k+w_filter,l].shape
                     out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[i,l], input_padded[j:j+h_filter,k:k+w_filter,l]))
                 out[j,k,i] = out[j,k,i] + biases[i]
+                #print out[j,k,i]
     print "output shape",out.shape,"\n"
     return out;
     
@@ -161,7 +164,7 @@ def relu_layer_forward(x):
 #We could make this multi-channel with an "n" parameter, changes needed noted in comments
 def pool_layer_forward(X, size, stride = 1):
     print "Beginning pool layer"
-    print "X shape:",X.shape
+    #print "X shape:",X.shape
     h, w, d = X.shape
     h_out = h/size
     w_out = w/size
@@ -186,9 +189,6 @@ def pool_layer_forward_ineff(X, size, stride = 1):
     for i in range(0, h_out, stride):
         for j in range(0, w_out, stride):
             for k in range(d):
-                print i, j, k
-                print X[i:i+size,j:j+size,k]
-                print X[i:i+size,j:j+size,k].max()
                 out[i,j,k] = X[i:i+size,j:j+size,k].max()
     print ""
     return out
@@ -204,9 +204,9 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1):
     h_out = (h_prev - h_filter + 2 * padding) / stride + 1
     w_out = (w_prev - w_filter + 2 * padding) / stride + 1
     input_padded = np.pad(input,((0,0),(0,0),(0,0),(padding, padding),(padding, padding)),mode='constant')
-    print input_padded.shape, filters.shape
+    #print "Padded input shape:", input_padded.shape, "filters shape:", filters.shape
     out = np.zeros((h_out, w_out, n_filters, h_x, w_x))
-    print out.shape
+    #print "Output shape", out.shape
     for i in range(n_filters):
         for j in range(0, h_out, stride):
             for k in range(0, w_out, stride):
@@ -219,6 +219,7 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1):
                         for n in range(w_filter):
                             temp = np.add(temp, scaledMatrices[m,n])
                     out[j,k,i] = np.add(out[j,k,i], temp)
+                out[j,k,i] = np.add(out[j,k,i], b[i])
     print ""
     return out
     
@@ -274,9 +275,9 @@ def classify_ineff(processedArray):
             maxIndex = i
     print "MaxIndex:",maxIndex
     #print symInput[0,0,maxIndex]
-    #plt.figure()
-    #plt.imshow(symInput[0,0,maxIndex])
-    #plt.show()
+    plt.figure()
+    plt.imshow(symInput[0,0,maxIndex])
+    plt.show()
     
 def reshape_fc_weight_matrix(fcWeights, proper_shape):
     total_height, n_filters = fcWeights.shape
@@ -287,8 +288,8 @@ def reshape_fc_weight_matrix(fcWeights, proper_shape):
         for j in range(proper_depth):
             for k in range(proper_height):
                 for l in range(proper_width):
-                    index = k*proper_width + l
-                    temp[i][j][k][l] = fcWeights[index][i]
+                    index = k*proper_width + l + j
+                    temp[i,j,k,l] = fcWeights[index,i]
     return temp
     
 def do_all_layers(inputNumber, padding, stride):
@@ -297,25 +298,27 @@ def do_all_layers(inputNumber, padding, stride):
     print inputMatrix.shape, weightMatrix.shape
     print "Input shape is", temp.shape
     for i in range(len(weightMatrix)):
-        print "Shape of weight matrix:",weightMatrix[i].shape
+        #print "Shape of weight matrix:",weightMatrix[i].shape
         #If we're not doing an FC->Conv conversion, take out this next line
         weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape)
-        print "Shape of weight matrix:",weightMatrix[i].shape
+        #print "Shape of weight matrix:",weightMatrix[i].shape
         #print "Number of biases:",len(biasMatrix[i])
-        temp = conv_layer_forward(temp, weightMatrix[i], biasMatrix[i], stride, padding)
-        #temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        #temp = conv_layer_forward(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
         temp = relu_layer_forward(temp)
-        #symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
-        #symInput = relu_layer_forward(symInput)
+        symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
+        symInput = relu_layer_forward(symInput)
         #temp = pool_layer_forward(temp, 1)
-        #temp = pool_layer_forward_ineff(temp, 1)
+        temp = pool_layer_forward_ineff(temp, 1)
+        #print temp
     print symInput.shape
-    classify(temp)
-    #classify_ineff(temp)
+    #classify(temp)
+    plt.imshow(inputMatrix[inputNumber][:,:,0])
+    classify_ineff(temp)
 
 weightsFile = "./mnist_3A_layer.txt"
 inputsFile = "./example_10.txt" 
 
 init(inputsFile, weightsFile, 28, 28)
-do_all_layers(0, 0, 1)
+do_all_layers(9, 0, 1)
 #sym_conv_layer_forward(symInput, reshape_fc_weight_matrix(weightMatrix[0], inputMatrix[0].shape), biasMatrix[0], 1, 0)
