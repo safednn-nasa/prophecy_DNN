@@ -246,8 +246,10 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1, keras=
     return out;
     
 def relu_layer_forward(x):
+    print "Beginning relu layer"
     relu = lambda x: x * (x > 0).astype(float)
     return relu(x);
+    print ""
 
 #This is nonfunctional for the same reasons as conv_layer_forward above.
 #We could make this multi-channel with an "n" parameter, changes needed noted in comments, assuming we also changed the way we were shaping things to d x w x h
@@ -255,8 +257,8 @@ def pool_layer_forward(X, size, stride = 1):
     print "Beginning pool layer"
     #print "X shape:",X.shape
     h, w, d = X.shape
-    h_out = h/size
-    w_out = w/size
+    h_out = (h-size)/stride + 1
+    w_out = (w-size)/stride + 1
     X_reshaped = X.reshape(h, w, d) #(n*d, 1, h, w)
     X_col = im2col_sliding_strided(X_reshaped, (size, size), stepsize=stride) #im2col_indices(X_reshaped, size, size, padding=0, stride=stride)
     #print "X_col shape:",X_col.shape
@@ -275,10 +277,12 @@ def pool_layer_forward_ineff(X, size, stride = 1):
     w_out = (w-size)/stride + 1
     #X_reshaped = X.reshape(h, w, d)
     out = np.zeros((h_out, w_out, d))
-    for i in range(0, h_out, stride):
-        for j in range(0, w_out, stride):
+    for i in range(h_out):
+        for j in range(w_out):
             for k in range(d):
-                out[i,j,k] = X[i:i+size,j:j+size,k].max()
+                rowIndex = i*stride
+                colIndex = j*stride
+                out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
     print ""
     return out
     
@@ -290,15 +294,38 @@ def concolic_pool_layer_forward(X, size, stride = 1):
     w_out = (w-size)/stride + 1
     out = np.zeros((h_out, w_out, d))
     symOut = np.zeros((h_out, w_out, d, symInput.shape[3], symInput.shape[4]))
-    for i in range(0, h_out, stride):
-        for j in range(0, w_out, stride):
+    '''for i in range(d):
+        temp = np.zeros((symInput.shape[3], symInput.shape[4]))
+        for j in range(h):
+            for k in range(w):
+                temp = np.add(temp, symInput[j,k,i])
+        plt.figure()
+        plt.imshow(temp)
+        plt.show()
+        plt.imshow(X[:,:,i])
+        plt.show()'''
+    for i in range(h_out):
+        for j in range(w_out):
             for k in range(d):
-                max_idx = np.argmax(X[i:i+size,j:j+size,k])
+                rowIndex = i*stride
+                colIndex = j*stride
+                #print X[rowIndex:rowIndex+size,colIndex:colIndex+size,k], X[owIndex:rowIndex+size,j:j+size,k].max()
+                max_idx = np.argmax(X[rowIndex:rowIndex+size,colIndex:colIndex+size,k])
                 max_row = max_idx/size
                 max_col = max_idx % size
                 #print symInput[i:i+size,j:j+size,k][max_row, max_col].shape
-                symOut[i,j,k] = symInput[i:i+size,j:j+size,k][max_row, max_col]
-                out[i,j,k] = X[i:i+size,j:j+size,k].max()
+                symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
+                out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
+    '''for i in range(d):
+        temp = np.zeros((symInput.shape[3], symInput.shape[4]))
+        for j in range(h_out):
+            for k in range(w_out):
+                temp = np.add(temp, symOut[j,k,i])
+        plt.figure()
+        plt.imshow(temp)
+        plt.show()
+        plt.imshow(out[:,:,i])
+        plt.show()'''
     symInput = symOut
     print ""
     return out
@@ -336,6 +363,7 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
                             temp = np.add(temp, scaledMatrix)
                 out[j,k,i] = temp
                 #out[j,k,i] = np.add(out[j,k,i], b[i])
+    
     print "Output shape:", out.shape
     print ""
     return out
@@ -459,34 +487,57 @@ def do_all_layers_keras(inputNumber):
     activationIndex = 0
     for layerType in layerTypeList:
         if layerType.lower().startswith("conv"):
+            '''if convIndex == 1:
+                continue'''
             temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            #symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
+            '''for i in range(symInput.shape[2]):
+                thing = np.zeros((28,28))
+                for j in range(symInput.shape[0]):
+                    for k in range(symInput.shape[1]):
+                        #print symInput[j,k,i].shape
+                        thing = np.add(thing, symInput[j,k,i])
+                plt.figure()
+                plt.imshow(thing)
+                plt.show()'''
         elif layerType.lower().startswith("activation"):
             activationType = activationTypeList[activationIndex].lower()
             if activationType == 'relu':
                 temp = relu_layer_forward(temp)
-                symInput = relu_layer_forward(symInput)
+                #symInput = relu_layer_forward(symInput)
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
-            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
-            '''for j in range(temp.shape[0]):
-                for k in range(temp.shape[1]):
-                    plt.figure()
-                    plt.imshow(symInput[j,k,17])
-                    plt.show()'''
-            temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            for i in range (temp.shape[2]):
+                thing = np.zeros((temp.shape[0],temp.shape[1]))
+                for j in range(temp.shape[0]):
+                    for k in range(temp.shape[1]):
+                        thing = np.add(thing, temp[:,:,i])
+                plt.figure()
+                plt.imshow(thing)
+                plt.show()
+            temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            for i in range (temp.shape[2]):
+                thing = np.zeros((temp.shape[0],temp.shape[1]))
+                for j in range(temp.shape[0]):
+                    for k in range(temp.shape[1]):
+                        thing = np.add(thing, temp[:,:,i])
+                plt.figure()
+                plt.imshow(thing)
+                plt.show()
+            #temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
             poolIndex = poolIndex + 1 
         elif layerType.lower().startswith("flatten"):
             pass
         elif layerType.lower().startswith("dense"):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
             temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True) 
-            symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            #symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
-    #plt.figure()
-    #plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
+    plt.figure()
+    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
+    plt.show()
     plt.figure()
     plt.imshow(symInput[0,0,maxIndex])
     plt.show()
@@ -499,7 +550,7 @@ modelFile = "./model.json"
 read_weights_from_h5_file(h5File)
 init(inputsFile, weightsFile, 28, 28)
 parse_architecture_and_hyperparams(modelFile)
-do_all_layers_keras(1)
+do_all_layers_keras(9)
 #do_all_layers(9, 0, 1)
 '''temp = inputMatrix[1]
 temp = conv_layer_forward_ineff(temp, convWeightMatrix[0], convBiasMatrix[0], 1, 0, keras=True)
