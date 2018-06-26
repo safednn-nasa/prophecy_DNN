@@ -247,12 +247,12 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1, keras=
     
 def relu_layer_forward(x):
     print "Beginning relu layer"
-    relu = lambda x: x * (x > 0).astype(float)
+    relu = lambda x: x * (x > 0).astype(float) #PC = PC ^ x > 0
     return relu(x);
     print ""
 
-#This is nonfunctional for the same reasons as conv_layer_forward above.
-#We could make this multi-channel with an "n" parameter, changes needed noted in comments, assuming we also changed the way we were shaping things to d x w x h
+'''This is nonfunctional for the same reasons as conv_layer_forward above.
+We could make this multi-channel with an "n" parameter, changes needed noted in comments, assuming we also changed the way we were shaping things to d x w x h'''
 def pool_layer_forward(X, size, stride = 1):
     print "Beginning pool layer"
     #print "X shape:",X.shape
@@ -330,9 +330,9 @@ def concolic_pool_layer_forward(X, size, stride = 1):
     print ""
     return out
 
-#Each node in the layer must have an array with a list input.size of coefficients. 
-#If our input is X x Y, every point on a given internal/output layer needs an X x Y map of coefficients.
-#The simple way of doing it: we start off with a ([n x] h x w x d x h x w) input with 1's in all the different h x w locations. That turns into an ([n x] h_out x w_out x n_filters x h x w) map with each passing layer. Each location on that map is the sum of h_filter x w_filter maps from a particular stride, each multiplied by the appropriate filter value. 
+'''Each node in the layer must have an array with a list input.size of coefficients. 
+If our input is X x Y, every point on a given internal/output layer needs an X x Y map of coefficients.
+The simple way of doing it: we start off with a ([n x] h x w x d x h x w) input with 1's in all the different h x w locations. That turns into an ([n x] h_out x w_out x n_filters x h x w) map with each passing layer. Each location on that map is the sum of h_filter x w_filter maps from a particular stride, each multiplied by the appropriate filter value. '''
 def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
     print "Beginning sym conv layer"
     h_prev, w_prev, d_prev, h_x, w_x = input.shape
@@ -490,7 +490,7 @@ def do_all_layers_keras(inputNumber):
             '''if convIndex == 1:
                 continue'''
             temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            #symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
             '''for i in range(symInput.shape[2]):
                 thing = np.zeros((28,28))
@@ -508,31 +508,31 @@ def do_all_layers_keras(inputNumber):
                 #symInput = relu_layer_forward(symInput)
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
-            for i in range (temp.shape[2]):
+            '''for i in range (temp.shape[2]):
                 thing = np.zeros((temp.shape[0],temp.shape[1]))
                 for j in range(temp.shape[0]):
                     for k in range(temp.shape[1]):
                         thing = np.add(thing, temp[:,:,i])
                 plt.figure()
                 plt.imshow(thing)
-                plt.show()
-            temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
-            for i in range (temp.shape[2]):
+                plt.show()'''
+            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            '''for i in range (temp.shape[2]):
                 thing = np.zeros((temp.shape[0],temp.shape[1]))
                 for j in range(temp.shape[0]):
                     for k in range(temp.shape[1]):
                         thing = np.add(thing, temp[:,:,i])
                 plt.figure()
                 plt.imshow(thing)
-                plt.show()
-            #temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+                plt.show()'''
+            temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
             poolIndex = poolIndex + 1 
         elif layerType.lower().startswith("flatten"):
             pass
         elif layerType.lower().startswith("dense"):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
             temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True) 
-            #symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
     plt.figure()

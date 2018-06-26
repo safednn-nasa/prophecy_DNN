@@ -1,6 +1,7 @@
 #This is just an implementation of the Relu net in python. It can do either the small example or read from files, as you prefer. 
 
 import numpy as np;
+import matplotlib.pyplot as plt
 
 n0 = 5
 n1 = 3
@@ -148,11 +149,13 @@ def do_all_layers(inputNumber):
             maxIndex = i
         
     print "MaxIndex:",maxIndex
-    #print symTemp[maxIndex]
+    print symTemp[maxIndex]
+    plt.imshow(symTemp[maxIndex].reshape((28,28)))
+    plt.show()
 
 init("./example_10.txt", "./mnist_3A_layer.txt", 1, 784)
 #for i in range(len(inputMatrix)):
-do_all_layers(0)
+do_all_layers(9)
     
 #init_simple()
 #print "layer0",layer0
