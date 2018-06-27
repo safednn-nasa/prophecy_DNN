@@ -1,15 +1,31 @@
 #Just a test playground to mess around with bits and pieces before they're placed in the full-scale implementations.
 
 import numpy as np;
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import time
+import h5py
+import tensorflow as tf
+from tensorflow.python.saved_model import tag_constants
+from google.protobuf import json_format
+
+from tensorflow.examples.tutorials.mnist import input_data
 
 weightMatrix = None
 biasMatrix = None
 inputMatrix = None
+symInput = None
+
+convWeightMatrix = None
+convBiasMatrix = None
+denseWeightMatrix = None
+denseBiasMatrix = None
+layerTypeList = []
+maxPoolParams = []
+activationTypeList = [] 
+convParams = []
 
 #Assumed format of inputs file: list of inputs of size S+1, where the first element is discardable.
-#Populates inputMatrix, a matrix of N height-by-width-by-1 3D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k.
+#Populates inputMatrix, a matrix of N 1-by-1-by-height-by-width-by 4D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k. Assuming single, 2D images.
 def read_inputs_from_file(inputFile, height, width):
     global inputMatrix
     with open(inputFile) as f:
@@ -111,7 +127,7 @@ def conv_layer_forward(input, filter, b, stride=1, padding=1):
     #print "Conv: input shape",input.shape
     n_x, d_x, h_x, w_x = input.shape #Still assuming one 2D image at a time for now, so d_x should start as 1 and then depend on the number of filters, n_x is always 1
     #print "Conv: filter shape",filter.shape
-    n_filters, d_filter, h_filter, w_filter = filter.shape 
+    n_filters, d_filter, h_filter, w_filter = filter.shape # This is our usual format for this. Typical format for input is h x w x d.
     h_out = (h_x - h_filter + 2 * padding) / stride + 1
     w_out = (w_x - w_filter + 2 * padding) / stride + 1
     input_col = im2col_indices(input, h_filter, w_filter, padding=padding, stride=stride) #im2col_sliding_strided(input, (h_filter, w_filter), stride, padding) 
@@ -193,32 +209,41 @@ def pool_layer_forward_ineff(X, size, stride = 1):
 
 #Each node in the layer must have an array with a list input.size of coefficients. Aside from the FC->Convolution conversion case, can we even do that as a matrix operation? For FC layer, it's just a dot product: previous sym_layer with the weight matrix. 
 #If our input is X x Y, every point on a given internal/output layer needs an X x Y map of coefficients. Can we create a weight matrix by overlapping the filters by their stride? That would be the total impact a pixel had overall on the next layer, but not appropriately divided.
-def sym_conv_layer_forward(input, filter, b, stride=1, padding=1):
-    #TODO: Figuring out how to implement this is the core of the project.
-    #out = np.dot(input, filter)
-    #out = out.transpose()
-    #print "Conv: input shape",input.shape
-    h_x, w_x, d_x = input.shape #Still assuming one 2D image at a time for now, so we omit the n_x and d_x should always be 1
-    #print "Conv: filter shape",filter.shape
-    n_filters, h_filter, w_filter = filter.shape
-    #Want to produce an output of shape (n_filters, h_x, w_x). Using stride=1 and padding=(filter_size-1)/2 will at least guarantee that h_out = h_x and w_out = w_x
-    padding = (h_filter-1)/2
-    h_out = (h_x - h_filter + 2 * padding) / stride + 1
-    w_out = (w_x - w_filter + 2 * padding) / stride + 1
-    input_col = im2col_sliding_strided(input, (h_filter, w_filter), stride, padding) #im2col(input, filter.shape[0], filter.shape[1], padding=padding, stride=stride)
-    #print "Input_col shape",input_col.shape
-    filter_col = filter.reshape(n_filters, -1)
-    #print "Filter_col shape",filter_col.shape
-    #converted_biases = np.array(b).reshape(-1, 1)
-    #out = np.add(np.dot(filter_col, input_col), converted_biases)
-    out = out.reshape(n_filters, h_out, w_out) #(n_filters, h_out, w_out, n_x) if multi-input
-    #out = out.transpose(3, 0, 1, 2) #Turns it back to (n_x, n_filters, h_out, w_out), but we don't need that since we don't have multiple inputs
-    #print "output shape",out.shape
-    return out;
+def sym_conv_layer_forward(input, filters, b, stride=1, padding=1):
+    print "Beginning sym conv layer"
+    h_prev, w_prev, d_prev, h_x, w_x = input.shape
+    n_filters, d_filter, h_filter, w_filter = filters.shape #d_x should equal d_filter
+    h_out = (h_prev - h_filter + 2 * padding) / stride + 1
+    w_out = (w_prev - w_filter + 2 * padding) / stride + 1
+    input_padded = np.pad(input,((0,0),(0,0),(0,0),(padding, padding),(padding, padding)),mode='constant')
+    #print "Padded input shape:", input_padded.shape, "filters shape:", filters.shape
+    out = np.zeros((h_out, w_out, n_filters, h_x, w_x))
+    #print "Output shape", out.shape
+    for i in range(n_filters):
+        for j in range(0, h_out, stride):
+            for k in range(0, w_out, stride):
+                for l in range(d_prev):
+                    #print filters[i,l].shape
+                    #print input_padded[j:j+h_filter,k:k+w_filter,l].shape
+                    temp = np.zeros((h_x, w_x))
+                    scaledMatrices = np.multiply(filters[i,l], input_padded[j:j+h_filter,k:k+w_filter,l])
+                    for m in range(h_filter):
+                        for n in range(w_filter):
+                            temp = np.add(temp, scaledMatrices[m,n])
+                    out[j,k,i] = np.add(out[j,k,i], temp)
+                #out[j,k,i] = np.add(out[j,k,i], b[i])
+    print ""
+    return out
 
 def init(inputFile, weightFile, inputHeight, inputWidth):
+    print "Initializing..."
+    global symInput
     read_inputs_from_file(inputFile, inputHeight, inputWidth)
     read_weights_from_file(weightFile)
+    symInput = np.zeros((inputHeight, inputWidth, 1, inputHeight, inputWidth))
+    for i in range(inputHeight):
+        for j in range(inputWidth):
+            symInput[i,j,0,i,j] = 1
     
 def classify(processedArray):
     maxValue = 0
@@ -229,6 +254,7 @@ def classify(processedArray):
             maxValue = processedArray[0][i][0][0]
             maxIndex = i
     print "MaxIndex:",maxIndex
+    return maxIndex
     
 def reshape_fc_weight_matrix(fcWeights, proper_shape):
     total_height, n_filters = fcWeights.shape
@@ -239,7 +265,7 @@ def reshape_fc_weight_matrix(fcWeights, proper_shape):
         for j in range(proper_depth):
             for k in range(proper_height):
                 for l in range(proper_width):
-                    index = k*proper_width + l
+                    index = k*proper_width + l + j
                     temp[i][j][k][l] = fcWeights[index][i]
     return temp
     
@@ -252,8 +278,9 @@ def extents(f):
 #The weights are of shape (number_of_filters, depth_of_filters, filter_height, filter_width)
 #The number of images should be 1 at all times. Depth of images will start out at 1 and then will change based on the number of filters in the previous layer, depth of filters similarly.
 def do_all_layers(inputNumber, stride, padding):
-    global weightMatrix
+    global weightMatrix, symInput
     temp = inputMatrix[inputNumber]
+    
     #print inputMatrix.shape[0], "examples,", 
     print weightMatrix.shape[0], "layers"
     print "Input shape is", temp.shape
@@ -263,16 +290,209 @@ def do_all_layers(inputNumber, stride, padding):
         weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape[1:])
         #print "Shape of weight matrix:",weightMatrix[i].shape
         #print "Number of biases (should = number of filters):",len(biasMatrix[i])
-        #temp = conv_layer_forward(temp, weightMatrix[i], biasMatrix[i], stride, padding)
-        temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        temp = conv_layer_forward(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        #temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
         temp = relu_layer_forward(temp)
-        #temp = pool_layer_forward(temp, 1)
+        symInput = relu_layer_forward(symInput)
+        temp = pool_layer_forward(temp, 1)
         #temp = pool_layer_forward_ineff(temp, 1)
     #print temp
-    classify(temp)
+    max_index = classify(temp)
+    plt.imshow(symInput[0,0,max_index])
+    plt.figure()
+    plt.imshow(inputMatrix[inputNumber][0,0,:,:])
+    plt.figure()
+    plt.imshow(np.multiply(symInput[0,0,max_index], inputMatrix[inputNumber][0,0,:,:]))
+    plt.show()
+    
+'''f=h5py.File('mnist_complicated.h5','r')
+model_weights = f['model_weights']
+print model_weights.keys()
+layer = 0
+conv_layers = [p for p in model_weights.keys() if p.startswith('conv2d')]
+dense_layers = [p for p in model_weights.keys() if p.startswith('dense')]
+pool_layers = [p for p in model_weights.keys() if p.startswith('max_pool')]
+convWeightMatrix = np.empty(len(conv_layers),dtype=list)
+convBiasMatrix = np.empty(len(conv_layers),dtype=list)
+denseWeightMatrix = np.empty(len(dense_layers),dtype=list)
+denseBiasMatrix = np.empty(len(dense_layers),dtype=list)
+for k in conv_layers:
+    for j in model_weights[k][k].keys():
+        if j.startswith('kernel'):
+            convWeightMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
+            convWeightMatrix[layer] = model_weights[k][k][j]
+        if j.startswith('bias'):
+            convBiasMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
+            convBiasMatrix[layer] = model_weights[k][k][j]
+    layer = layer+1
+layer = 0
+for k in dense_layers:
+    for j in model_weights[k][k].keys():
+        if j.startswith('kernel'):
+            denseWeightMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
+            denseWeightMatrix[layer] = model_weights[k][k][j]
+        if j.startswith('bias'):
+            denseBiasMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
+            denseBiasMatrix[layer] = model_weights[k][k][j]
+    layer = layer+1'''
+
+def pool_testing(size, stride):
+    X = np.arange(16).reshape(4, 4, 1)
+    print X
+    h, w, d = X.shape
+    h_out = (h-size)/stride + 1
+    w_out = (w-size)/stride + 1
+    out = np.zeros((h_out, w_out, d))
+    for i in range(h_out):
+        for j in range(w_out):
+            for k in range(d):
+                rowIndex = i*stride
+                colIndex = j*stride
+                print X[rowIndex:rowIndex+size,colIndex:colIndex+size,k]
+                out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
+    print out
+    
+def tf_testing_1():
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    sess = tf.InteractiveSession()
+    x = tf.placeholder(tf.float32, shape=[None, 784])
+    y_ = tf.placeholder(tf.float32, shape=[None, 10])
+    W = tf.Variable(tf.zeros([784,10]))
+    b = tf.Variable(tf.zeros([10]))
+    sess.run(tf.global_variables_initializer())
+    y = tf.matmul(x,W) + b
+    cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
+    train_step = tf.train.GradientDescentOptimizer(0.5).minimize(cross_entropy)
+    for _ in range(1000):
+        batch = mnist.train.next_batch(100)
+        train_step.run(feed_dict={x: batch[0], y_: batch[1]})
+    correct_prediction = tf.equal(tf.argmax(y,1), tf.argmax(y_,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    print(accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels}))
+    
+def weight_variable(shape):
+    initial = tf.truncated_normal(shape, stddev=0.1)
+    return tf.Variable(initial)
+
+def bias_variable(shape):
+    initial = tf.constant(0.1, shape=shape)
+    return tf.Variable(initial)
+  
+def conv2d(x, W):
+    return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+
+def max_pool_2x2(x):
+    return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME') 
+    
+def tf_testing_2():
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    x = tf.placeholder(tf.float32, shape=[None, 784])
+    y_ = tf.placeholder(tf.float32, shape=[None, 10])
+    
+    W_conv1 = weight_variable([5, 5, 1, 32])
+    b_conv1 = bias_variable([32])
+    x_image = tf.reshape(x, [-1, 28, 28, 1])
+    
+    h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
+    h_pool1 = max_pool_2x2(h_conv1)
+    
+    W_conv2 = weight_variable([5, 5, 32, 64])
+    b_conv2 = bias_variable([64])
+    
+    h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
+    h_pool2 = max_pool_2x2(h_conv2)
+    
+    W_fc1 = weight_variable([7 * 7 * 64, 1024])
+    b_fc1 = bias_variable([1024])
+
+    h_pool2_flat = tf.reshape(h_pool2, [-1, 7*7*64])
+    h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+    
+    keep_prob = tf.placeholder(tf.float32)
+    h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+    
+    W_fc2 = weight_variable([1024, 10])
+    b_fc2 = bias_variable([10])
+
+    y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+    
+    cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
+    train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
+    correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+    saver = tf.train.Saver() #maybe try [W_conv1, b_conv1, h_pool1, W_conv2, b_conv2, h_pool2, W_fc1, b_fc1, h_fc1, W_fc2, b_fc2] as an argument? But it's supposed to save all the variables... Gotta find a way to parse this graph.
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(20000):
+            batch = mnist.train.next_batch(50)
+            if i % 100 == 0:
+                train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0}, session=sess)
+                print('step %d, training accuracy %g' % (i, train_accuracy))
+                #tf.train.Saver().save(sess, 'tf_models/mnist_iter', global_step=i)
+            train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5}, session=sess)
+        
+        print('test accuracy %g' % accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}, session=sess))
+    
+        saver.save(sess, 'tf_models/mnist')
+    
+def tf_testing_3():
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph('tf_models/mnist.meta')
+        imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models'))
+        graph = tf.get_default_graph()
+        convLayer = 0
+        denseLayer = 0
+        mostRecentLayer = ""
+        conv_layers = [p for p in tf.trainable_variables() if len(p.shape) == 4]
+        dense_layers = [p for p in tf.trainable_variables() if len(p.shape) == 2]
+        convWeightMatrix = np.empty(len(conv_layers),dtype=list)
+        convBiasMatrix = np.empty(len(conv_layers),dtype=list)
+        denseWeightMatrix = np.empty(len(dense_layers),dtype=list)
+        denseBiasMatrix = np.empty(len(dense_layers),dtype=list)
+        for v in tf.trainable_variables():
+            if len(v.shape) == 4: #convolutional layer
+                layerTypeList.append('conv2d')
+                convWeightMatrix[convLayer] = np.zeros(v.shape)
+                convWeightMatrix[convLayer] = sess.run(v)
+                convParams.append({'strides': [1, 1]})
+                mostRecentLayer = "conv"
+                layerTypeList.append('activation')
+                activationTypeList.append('relu')
+                layerTypeList.append('maxpool')
+                maxPoolParams.append({'pool_size': [2, 2], 'strides': [2, 2]})
+            elif len(v.shape) == 2: #dense layer
+                layerTypeList.append('dense')
+                denseWeightMatrix[denseLayer] = np.zeros(v.shape)
+                denseWeightMatrix[denseLayer] = sess.run(v)
+                mostRecentLayer = "dense"
+                layerTypeList.append('activation')
+                activationTypeList.append('relu')
+            elif len(v.shape) == 1: #bias
+                if(mostRecentLayer == "conv"):
+                    convBiasMatrix[convLayer] = np.zeros(v.shape)
+                    convBiasMatrix[convLayer] = sess.run(v)
+                    convLayer = convLayer + 1
+                elif(mostRecentLayer == "dense"):
+                    denseBiasMatrix[denseLayer] = np.zeros(v.shape)
+                    denseBiasMatrix[denseLayer] = sess.run(v)
+                    denseLayer = denseLayer + 1
+                
+            print v.shape
+            #temp = sess.run(v)
+            #print temp
+
+#temp = inputMatrix[0]
 
 init("./example_10.txt", "./mnist_3A_layer.txt", 28, 28)
+#print symInput.shape
 #plt.figure()
 #plt.imshow(inputMatrix[0][0,0])
 #plt.show()
-do_all_layers(1, 1, 0)
+#do_all_layers(9, 1, 0)
+
+tf_testing_3()
+    
+#pool_testing(2,2)

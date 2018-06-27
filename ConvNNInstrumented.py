@@ -1,10 +1,11 @@
 #This is where we'll be doing our full implementation of a convolutional neural net with symbolic tracking.
 
 import numpy as np;
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import h5py
 import json
 import time
+import tensorflow as tf
 
 weightMatrix = None
 biasMatrix = None
@@ -104,8 +105,54 @@ def parse_architecture_and_hyperparams(jsonFile):
             pass #No hyperparameters
     #print layerTypeList, maxPoolParams, activationTypeList, convParams
     
-#Assumed format of weights file (see mnist_3A_layer.txt for example): [N=numberOfLayers\n\n(X=heightOfFilter,Y=widthOfFilter\n(Z=csvOfXTimesYWeights)\n(B=csvOfYBiases)\n\n)*N]
-#Populates weightMatrix, a 3D matrix of N 2D matrices with X rows and Y columns, and biasMatrix, a 2D matrix of N rows where each row is a list of Y biases for the respective filters 
+def read_weights_from_saved_tf_model(metaFile='tf_models/mnist.meta', ckpoint='./tf_models'):
+    global convWeightMatrix, convBiasMatrix, denseWeightMatrix, denseBiasMatrix, layerTypeList, maxPoolParams, activationTypeList, convParams
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph(metaFile)
+        imported_graph.restore(sess, tf.train.latest_checkpoint(ckpoint))
+        graph = tf.get_default_graph()
+        convLayer = 0
+        denseLayer = 0
+        mostRecentLayer = ""
+        conv_layers = [p for p in tf.trainable_variables() if len(p.shape) == 4]
+        dense_layers = [p for p in tf.trainable_variables() if len(p.shape) == 2]
+        convWeightMatrix = np.empty(len(conv_layers),dtype=list)
+        convBiasMatrix = np.empty(len(conv_layers),dtype=list)
+        denseWeightMatrix = np.empty(len(dense_layers),dtype=list)
+        denseBiasMatrix = np.empty(len(dense_layers),dtype=list)
+        for v in tf.trainable_variables():
+            if len(v.shape) == 4: #convolutional layer
+                layerTypeList.append('conv2d')
+                convWeightMatrix[convLayer] = np.zeros(v.shape)
+                convWeightMatrix[convLayer] = sess.run(v)
+                convParams.append({'strides': [1, 1]})
+                mostRecentLayer = "conv"
+                layerTypeList.append('activation')
+                activationTypeList.append('relu')
+                layerTypeList.append('maxpool')
+                maxPoolParams.append({'pool_size': [2, 2], 'strides': [2, 2]})
+            elif len(v.shape) == 2: #dense layer
+                layerTypeList.append('dense')
+                denseWeightMatrix[denseLayer] = np.zeros(v.shape)
+                denseWeightMatrix[denseLayer] = sess.run(v)
+                mostRecentLayer = "dense"
+                layerTypeList.append('activation')
+                activationTypeList.append('relu')
+            elif len(v.shape) == 1: #bias
+                if(mostRecentLayer == "conv"):
+                    convBiasMatrix[convLayer] = np.zeros(v.shape)
+                    convBiasMatrix[convLayer] = sess.run(v)
+                    convLayer = convLayer + 1
+                elif(mostRecentLayer == "dense"):
+                    denseBiasMatrix[denseLayer] = np.zeros(v.shape)
+                    denseBiasMatrix[denseLayer] = sess.run(v)
+                    denseLayer = denseLayer + 1
+                
+            print v.shape
+    
+'''Assumed format of weights file (see mnist_3A_layer.txt for example): [N=numberOfLayers\n\n(X=heightOfFilter,Y=widthOfFilter\n(Z=csvOfXTimesYWeights)\n(B=csvOfYBiases)\n\n)*N]
+Populates weightMatrix, a 3D matrix of N 2D matrices with X rows and Y columns, and biasMatrix, a 2D matrix of N rows where each row is a list of Y biases for the respective filters '''
 def read_weights_from_file(inputFile):
     global weightMatrix, biasMatrix
     with open(inputFile) as f:
@@ -226,7 +273,7 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1, keras=
     #print input_padded[4,0:w_filter,0]
     #print filters[0,0,0:h_filter,0:w_filter]
     for i in range(n_filters):
-        print "Applying filter", i
+        #print "Applying filter", i
         #print filters[i]
         for j in range(0, h_out, stride):
             for k in range(0, w_out, stride):
@@ -490,7 +537,7 @@ def do_all_layers_keras(inputNumber):
             '''if convIndex == 1:
                 continue'''
             temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            #symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
             '''for i in range(symInput.shape[2]):
                 thing = np.zeros((28,28))
@@ -516,7 +563,7 @@ def do_all_layers_keras(inputNumber):
                 plt.figure()
                 plt.imshow(thing)
                 plt.show()'''
-            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
             '''for i in range (temp.shape[2]):
                 thing = np.zeros((temp.shape[0],temp.shape[1]))
                 for j in range(temp.shape[0]):
@@ -525,51 +572,36 @@ def do_all_layers_keras(inputNumber):
                 plt.figure()
                 plt.imshow(thing)
                 plt.show()'''
-            temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            #temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
             poolIndex = poolIndex + 1 
         elif layerType.lower().startswith("flatten"):
             pass
         elif layerType.lower().startswith("dense"):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
             temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True) 
-            symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            #symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
-    plt.figure()
+    '''plt.figure()
     plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
     plt.show()
     plt.figure()
     plt.imshow(symInput[0,0,maxIndex])
-    plt.show()
+    plt.show()'''
 
 weightsFile = "./mnist_3A_layer.txt"
 inputsFile = "./example_10.txt" 
 h5File = "./mnist_complicated.h5"
 modelFile = "./model.json"
+metaFile = "./tf_models/mnist.meta"
+checkpoint = "./tf_models"
 
-read_weights_from_h5_file(h5File)
+#read_weights_from_h5_file(h5File)
+#parse_architecture_and_hyperparams(modelFile)
+read_weights_from_saved_tf_model()
 init(inputsFile, weightsFile, 28, 28)
-parse_architecture_and_hyperparams(modelFile)
-do_all_layers_keras(9)
+do_all_layers_keras(4)
 #do_all_layers(9, 0, 1)
-'''temp = inputMatrix[1]
-temp = conv_layer_forward_ineff(temp, convWeightMatrix[0], convBiasMatrix[0], 1, 0, keras=True)
-temp = relu_layer_forward(temp)
-temp = conv_layer_forward_ineff(temp, convWeightMatrix[1], convBiasMatrix[1], 1, 0, keras=True)
-temp = relu_layer_forward(temp)
-temp = pool_layer_forward_ineff(temp, 2, 2)
-temp = conv_layer_forward_ineff(temp, convWeightMatrix[2], convBiasMatrix[2], 1, 0, keras=True)
-temp = relu_layer_forward(temp)
-temp = conv_layer_forward_ineff(temp, convWeightMatrix[3], convBiasMatrix[3], 1, 0, keras=True)
-temp = relu_layer_forward(temp)
-temp = pool_layer_forward_ineff(temp, 2, 2)
-temp = conv_layer_forward_ineff(temp, reshape_fc_weight_matrix_keras(denseWeightMatrix[0], temp.shape), denseBiasMatrix[0], 1, 0, keras=True)
-temp = relu_layer_forward(temp)
-temp = conv_layer_forward_ineff(temp, reshape_fc_weight_matrix_keras(denseWeightMatrix[1], temp.shape), denseBiasMatrix[1], 1, 0, keras=True)
-temp = relu_layer_forward(temp)
-temp = conv_layer_forward_ineff(temp, reshape_fc_weight_matrix_keras(denseWeightMatrix[2], temp.shape), denseBiasMatrix[2], 1, 0, keras=True)
-#temp = relu_layer_forward(temp)
-classify_ineff(temp)'''
 #plt.figure()
 #plt.imshow(inputMatrix[9][:,:,0])
 #plt.show()
