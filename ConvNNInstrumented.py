@@ -1,7 +1,7 @@
 #This is where we'll be doing our full implementation of a convolutional neural net with symbolic tracking.
 
 import numpy as np;
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import h5py
 import json
 import time
@@ -21,8 +21,8 @@ maxPoolParams = []
 activationTypeList = [] 
 convParams = []
 
-#Assumed format of inputs file: list of inputs of size S+1, where the first element is discardable.
-#Populates inputMatrix, a matrix of N height-by-width-by-1 3D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k.
+'''Assumed format of inputs file: list of inputs of size S+1, where the first element is discardable.
+Populates inputMatrix, a matrix of N height-by-width-by-1 3D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k.'''
 def read_inputs_from_file(inputFile, height, width):
     global inputMatrix
     with open(inputFile) as f:
@@ -39,7 +39,7 @@ def read_inputs_from_file(inputFile, height, width):
                     count += 1
             #inputMatrix[l] = np.transpose(k) #provides Nx1 output
             
-#Keras models are stored in h5 files, which we can read with this function. It populates weight and bias matrices for both convolutional and fully-connected layers. It doesn't get the strides, zero-pads, architecture, or dimensions of the pooling layers. I don't know how to actively retrieve those from the .h5 file, but if we turn it into a tensorflow model.json (using tensorflowjs), they're in there; need to finish writing the function below for that. Anyway, convWeightMatrix is L entries, where L is the number of convolutional layers, each of shape n_filters x d_filter x h_filter x w_filter (unfortunately the come h x w x d x n, had to tweak that). convBiasMatrix is L entries with as many biases as the respective layer has filters, natch. denseBiasMatrix is much the same just with length M, where M is the number of FC layers, and denseWeightMatrix's M entries are input_length x output_length typical FC weight matrices, they'll need the reshape_fc_weight_matrix treatment. Alternatively, we could implement a flattening function to turn the output of the last convolutional layer into a single-dimensional output.
+'''Keras models are stored in h5 files, which we can read with this function. It populates weight and bias matrices for both convolutional and fully-connected layers. It doesn't get the strides, zero-pads, architecture, or dimensions of the pooling layers. I don't know how to actively retrieve those from the .h5 file, but if we turn it into a tensorflow model.json (using tensorflowjs), they're in there; need to finish writing the function below for that. Anyway, convWeightMatrix is L entries, where L is the number of convolutional layers, each of shape n_filters x d_filter x h_filter x w_filter (unfortunately the come h x w x d x n, had to tweak that). convBiasMatrix is L entries with as many biases as the respective layer has filters, natch. denseBiasMatrix is much the same just with length M, where M is the number of FC layers, and denseWeightMatrix's M entries are input_length x output_length typical FC weight matrices, they'll need the reshape_fc_weight_matrix treatment. Alternatively, we could implement a flattening function to turn the output of the last convolutional layer into a single-dimensional output.'''
 def read_weights_from_h5_file(h5File):
     global convWeightMatrix, convBiasMatrix, denseWeightMatrix, denseBiasMatrix
     f=h5py.File(h5File,'r')
@@ -105,6 +105,7 @@ def parse_architecture_and_hyperparams(jsonFile):
             pass #No hyperparameters
     #print layerTypeList, maxPoolParams, activationTypeList, convParams
     
+'''Annoyingly, I cant figure out how to get the structure and hyperparameters out of the graph, so we're working off of the assumption that each convolutional layer is followed by a relu and pooling layer, and that each dense layer is followed by a relu layer (except the last one). This is at least true for mnist_deep.'''
 def read_weights_from_saved_tf_model(metaFile='tf_models/mnist.meta', ckpoint='./tf_models'):
     global convWeightMatrix, convBiasMatrix, denseWeightMatrix, denseBiasMatrix, layerTypeList, maxPoolParams, activationTypeList, convParams
     graph = tf.Graph()
@@ -126,6 +127,7 @@ def read_weights_from_saved_tf_model(metaFile='tf_models/mnist.meta', ckpoint='.
                 layerTypeList.append('conv2d')
                 convWeightMatrix[convLayer] = np.zeros(v.shape)
                 convWeightMatrix[convLayer] = sess.run(v)
+                #print convWeightMatrix[convLayer]
                 convParams.append({'strides': [1, 1]})
                 mostRecentLayer = "conv"
                 layerTypeList.append('activation')
@@ -150,6 +152,7 @@ def read_weights_from_saved_tf_model(metaFile='tf_models/mnist.meta', ckpoint='.
                     denseLayer = denseLayer + 1
                 
             print v.shape
+        layerTypeList[-1] = "" #Removes last activation layer.
     
 '''Assumed format of weights file (see mnist_3A_layer.txt for example): [N=numberOfLayers\n\n(X=heightOfFilter,Y=widthOfFilter\n(Z=csvOfXTimesYWeights)\n(B=csvOfYBiases)\n\n)*N]
 Populates weightMatrix, a 3D matrix of N 2D matrices with X rows and Y columns, and biasMatrix, a 2D matrix of N rows where each row is a list of Y biases for the respective filters '''
@@ -205,7 +208,7 @@ def get_im2col_indices(input_shape, field_height, field_width, padding=1, stride
     
     return (k, i, j)
     
-#We're assuming the image is 2D for now. 
+'''We're assuming the image is 2D for now.'''
 def im2col_indices(input, section_height, section_width, padding=1, stride=1):
     input_padded = np.pad(input, ((padding, padding),(padding, padding)), mode='constant')
     k, i, j = get_im2col_indices((1,)+input.shape, section_height, section_width, padding, stride)
@@ -232,7 +235,7 @@ def im2col_sliding_strided(A, block_shape, stepsize=1, padding=0):
     out_view = np.lib.stride_tricks.as_strided(A_padded, shape=shp, strides=strd)
     return out_view.reshape(block_shape[0]*block_shape[1],-1)[:,::stepsize]
 
-#This method is currently non-functional. It was my first attempt to pull together a convolutional pass, based on some fancy indexing tricks, but it assumes a three-dimensional input (which im2col_sliding_strided doesn't do) with depth listed first (whereas we have it listed last). We could absolutely switch depth to being last, but conv_layer_forward_ineff below does the job just as well and has none of these issues and is generally more readable.
+'''This method is currently non-functional. It was my first attempt to pull together a convolutional pass, based on some fancy indexing tricks, but it assumes a three-dimensional input (which im2col_sliding_strided doesn't do) with depth listed first (whereas we have it listed last). We could absolutely switch depth to being last, but conv_layer_forward_ineff below does the job just as well and has none of these issues and is generally more readable.'''
 def conv_layer_forward(input, filter, b, stride=1, padding=1):
     print "Beginning conv layer"
     #print "Conv: input shape",input.shape
@@ -259,39 +262,51 @@ def conv_layer_forward(input, filter, b, stride=1, padding=1):
     
 def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1, keras=False):
     print "Beginning conv layer"
-    h_x, w_x, d_x = input.shape 
+    h_x, w_x, d_x = input.shape
     if(keras):
         h_filter, w_filter, d_filter, n_filters = filters.shape #d_x should equal d_filter
     else:
         n_filters, d_filter, h_filter, w_filter = filters.shape
+    if(padding == -1):
+        padding = (h_filter-1)/2
+    input_padded = np.pad(input,((padding, padding),(padding, padding),(0,0)),mode='constant')
+    print input.shape, filters.shape
     h_out = (h_x - h_filter + 2 * padding) / stride + 1
     w_out = (w_x - w_filter + 2 * padding) / stride + 1
     print h_out, "x", w_out, "out"
-    input_padded = np.pad(input,((padding, padding),(padding, padding),(0,0)),mode='constant')
-    print input_padded.shape, filters.shape
     out = np.zeros((h_out, w_out, n_filters))
+    #print "Biases:",biases
     #print input_padded[4,0:w_filter,0]
     #print filters[0,0,0:h_filter,0:w_filter]
     for i in range(n_filters):
-        #print "Applying filter", i
-        #print filters[i]
-        for j in range(0, h_out, stride):
-            for k in range(0, w_out, stride):
+        print "Applying filter", i
+        #print "Bias:", biases[i]
+        for j in range(h_out):
+            for k in range(w_out):
+                rowIndex = j*stride
+                colIndex = k*stride
                 for l in range(d_x):
                     #print filters[i,l].shape
                     #print input_padded[j:j+h_filter,k:k+w_filter,l].shape
-                    #for m in range(h_filter):
-                        #for n in range(w_filter):
-                            #out[j,k,i] = out[j,k,i] + filters[i,l,m,n] * input_padded[j+m,k+n,l]
                     if(keras):
-                        out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[:,:,l,i], input_padded[j:j+h_filter,k:k+w_filter,l]))
+                        '''if(i == 29):
+                            print filters[:,:,l,i]
+                            print biases[i]
+                            print input_padded[j:j+h_filter,k:k+w_filter,l]
+                            plt.figure()
+                            plt.imshow(input_padded[rowIndex:rowIndex+h_filter, colIndex:colIndex+w_filter,l])
+                            plt.show()'''
+                        out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[:,:,l,i], input_padded[rowIndex:rowIndex+h_filter,colIndex:colIndex+w_filter,l]))
                     else:
-                        out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[i,l], input_padded[j:j+h_filter,k:k+w_filter,l]))
+                        out[j,k,i] = out[j,k,i] + np.sum(np.multiply(filters[i,l], input_padded[rowIndex:rowIndex+h_filter,colIndex:colIndex+w_filter,l]))
                 out[j,k,i] = out[j,k,i] + biases[i]
+                '''if out[j,k,i] > 0.12:
+                    if i == 29'''
                 #print out[j,k,i]
+        #print out[:,:,i]
     print "output shape",out.shape,"\n"
     return out;
-    
+
 def relu_layer_forward(x):
     print "Beginning relu layer"
     relu = lambda x: x * (x > 0).astype(float) #PC = PC ^ x > 0
@@ -341,16 +356,6 @@ def concolic_pool_layer_forward(X, size, stride = 1):
     w_out = (w-size)/stride + 1
     out = np.zeros((h_out, w_out, d))
     symOut = np.zeros((h_out, w_out, d, symInput.shape[3], symInput.shape[4]))
-    '''for i in range(d):
-        temp = np.zeros((symInput.shape[3], symInput.shape[4]))
-        for j in range(h):
-            for k in range(w):
-                temp = np.add(temp, symInput[j,k,i])
-        plt.figure()
-        plt.imshow(temp)
-        plt.show()
-        plt.imshow(X[:,:,i])
-        plt.show()'''
     for i in range(h_out):
         for j in range(w_out):
             for k in range(d):
@@ -363,16 +368,6 @@ def concolic_pool_layer_forward(X, size, stride = 1):
                 #print symInput[i:i+size,j:j+size,k][max_row, max_col].shape
                 symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
                 out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
-    '''for i in range(d):
-        temp = np.zeros((symInput.shape[3], symInput.shape[4]))
-        for j in range(h_out):
-            for k in range(w_out):
-                temp = np.add(temp, symOut[j,k,i])
-        plt.figure()
-        plt.imshow(temp)
-        plt.show()
-        plt.imshow(out[:,:,i])
-        plt.show()'''
     symInput = symOut
     print ""
     return out
@@ -387,15 +382,19 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
         h_filter, w_filter, d_filter, n_filters = filters.shape #d_x should equal d_filter
     else:
         n_filters, d_filter, h_filter, w_filter = filters.shape
+    if padding == -1:
+        padding = (h_filter - 1)/2
     h_out = (h_prev - h_filter + 2 * padding) / stride + 1
     w_out = (w_prev - w_filter + 2 * padding) / stride + 1
-    input_padded = np.pad(input,((0,0),(0,0),(0,0),(padding, padding),(padding, padding)),mode='constant')
+    input_padded = np.pad(input,((padding, padding),(padding, padding),(0,0),(0,0),(0,0)),mode='constant')
     #print "Padded input shape:", input_padded.shape, "filters shape:", filters.shape
     out = np.zeros((h_out, w_out, n_filters, h_x, w_x))
     for i in range(n_filters):
         print "Applying sym filter", i
-        for j in range(0, h_out, stride):
-            for k in range(0, w_out, stride):
+        for j in range(h_out):
+            for k in range(w_out):
+                rowIndex = j*stride
+                colIndex = k*stride
                 temp = np.zeros((h_x, w_x))
                 for l in range(d_prev):
                     #print filters[i,l].shape
@@ -404,9 +403,9 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
                     for m in range(h_filter):
                         for n in range(w_filter):
                             if(keras):
-                                scaledMatrix = np.multiply(filters[m,n,l,i], input_padded[j+m,k+n,l])
+                                scaledMatrix = np.multiply(filters[m,n,l,i], input_padded[rowIndex+m,colIndex+n,l])
                             else:
-                                scaledMatrix = np.multiply(filters[i,l,m,n], input_padded[j+m,k+n,l])
+                                scaledMatrix = np.multiply(filters[i,l,m,n], input_padded[rowIndex+m,colIndex+n,l])
                             temp = np.add(temp, scaledMatrix)
                 out[j,k,i] = temp
                 #out[j,k,i] = np.add(out[j,k,i], b[i])
@@ -415,7 +414,7 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
     print ""
     return out
     
-#This was my first attempt at making a symbolic convolutional forward pass, based on the original implementation of conv_forward. Keeping it around for now just in case.
+'''This was my first attempt at making a symbolic convolutional forward pass, based on the original implementation of conv_forward. Keeping it around for now just in case.'''
 def unused_sym_conv(input, filter, b, stride=1, padding=1):
     #out = np.dot(input, filter)
     #out = out.transpose()
@@ -448,7 +447,7 @@ def init(inputFile, weightFile, inputHeight, inputWidth):
         for j in range(inputWidth):
             symInput[i,j,0,i,j] = 1
     
-#This assumes that output is of form d x h x w. We don't do that, so this is just in case we bother to get conv_layer_forward working. 
+'''This assumes that output is of form d x h x w. We don't do that, so this is just in case we bother to get conv_layer_forward working.'''
 def classify(processedArray):
     maxValue = 0
     maxIndex = -1
@@ -470,25 +469,26 @@ def classify_ineff(processedArray):
     print "MaxIndex:",maxIndex
     #print symInput[0,0,maxIndex]
     return maxIndex
-    
+  
+'''Each column of an FC weight matrix is a filter that will be placed over the entire input. We want to turn each of them into a proper_height x proper_width matrix, and end up with something of shape (proper_height, proper_width, n_filters). ''' 
 def reshape_fc_weight_matrix_keras(fcWeights, proper_shape):
     total_height, n_filters = fcWeights.shape
     proper_height, proper_width, proper_depth = proper_shape
-    temp = np.zeros((proper_height, proper_width, proper_depth, n_filters))
-    #Each column of an FC weight matrix is a filter that will be placed over the entire input. We want to turn each of them into a proper_height x proper_width matrix, and end up with something of shape (proper_height, proper_width, n_filters). 
-    for i in range(n_filters):
+    #temp = np.zeros((proper_height, proper_width, proper_depth, n_filters))
+    '''for i in range(n_filters):
         for j in range(proper_depth):
             for k in range(proper_height):
                 for l in range(proper_width):
                     index = k*proper_width + l + j
-                    temp[k,l,j,i] = fcWeights[index,i]
-    return temp
-    
+                    temp[k,l,j,i] = fcWeights[index,i]'''
+    return fcWeights.reshape((proper_height, proper_width, proper_depth, n_filters))
+
+'''Each column of an FC weight matrix is a filter that will be placed over the entire input. We want to turn each of them into a proper_height x proper_width matrix, and end up with something of shape (n_filters, proper_height, proper_width) (slightly different from the keras version above).'''   
 def reshape_fc_weight_matrix(fcWeights, proper_shape):
     total_height, n_filters = fcWeights.shape
     proper_height, proper_width, proper_depth = proper_shape
     temp = np.zeros((n_filters, proper_depth, proper_height, proper_width))
-    #Each column of an FC weight matrix is a filter that will be placed over the entire input. We want to turn each of them into a proper_height x proper_width matrix, and end up with something of shape (n_filters, proper_height, proper_width). 
+    
     for i in range(n_filters):
         for j in range(proper_depth):
             for k in range(proper_height):
@@ -496,6 +496,26 @@ def reshape_fc_weight_matrix(fcWeights, proper_shape):
                     index = k*proper_width + l + j
                     temp[i,j,k,l] = fcWeights[index,i]
     return temp
+
+def inspect_sym_input():
+    for i in range(symInput.shape[2]):
+        thing = np.zeros((symInput.shape[3],symInput.shape[4]))
+        for j in range(symInput.shape[0]):
+            for k in range(symInput.shape[1]):
+                thing = np.add(thing, symInput[j,k,i])
+        plt.figure()
+        plt.imshow(thing)
+        plt.show()
+        
+def inspect_intermediate_output(temp):
+    for i in range (temp.shape[2]):
+        thing = np.zeros((temp.shape[0],temp.shape[1]))
+        for j in range(temp.shape[0]):
+            for k in range(temp.shape[1]):
+                thing = np.add(thing, temp[:,:,i])
+        plt.figure()
+        plt.imshow(thing)
+        plt.show()
     
 def do_all_layers(inputNumber, padding, stride):
     global weightMatrix, symInput
@@ -536,71 +556,64 @@ def do_all_layers_keras(inputNumber):
         if layerType.lower().startswith("conv"):
             '''if convIndex == 1:
                 continue'''
-            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            #symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
             convIndex = convIndex + 1
-            '''for i in range(symInput.shape[2]):
-                thing = np.zeros((28,28))
-                for j in range(symInput.shape[0]):
-                    for k in range(symInput.shape[1]):
-                        #print symInput[j,k,i].shape
-                        thing = np.add(thing, symInput[j,k,i])
-                plt.figure()
-                plt.imshow(thing)
-                plt.show()'''
+            #inspect_intermediate_output(temp)
+            #inspect_sym_input()
         elif layerType.lower().startswith("activation"):
             activationType = activationTypeList[activationIndex].lower()
             if activationType == 'relu':
+                np.set_printoptions(threshold=np.nan)
                 temp = relu_layer_forward(temp)
+                '''for i in range(temp.shape[0]):
+                    for j in range(temp.shape[1]):
+                        print temp[i, j]'''
+                '''for i in range(temp.shape[2]):
+                    print temp[:, :, i]'''
                 #symInput = relu_layer_forward(symInput)
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
-            '''for i in range (temp.shape[2]):
-                thing = np.zeros((temp.shape[0],temp.shape[1]))
-                for j in range(temp.shape[0]):
-                    for k in range(temp.shape[1]):
-                        thing = np.add(thing, temp[:,:,i])
-                plt.figure()
-                plt.imshow(thing)
-                plt.show()'''
-            temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
-            '''for i in range (temp.shape[2]):
-                thing = np.zeros((temp.shape[0],temp.shape[1]))
-                for j in range(temp.shape[0]):
-                    for k in range(temp.shape[1]):
-                        thing = np.add(thing, temp[:,:,i])
-                plt.figure()
-                plt.imshow(thing)
-                plt.show()'''
-            #temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            #inspect_intermediate_output(temp)
+            #inspect_sym_input()
+            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            #inspect_intermediate_output(temp)
+            #inspect_sym_input()
             poolIndex = poolIndex + 1 
         elif layerType.lower().startswith("flatten"):
             pass
         elif layerType.lower().startswith("dense"):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
-            temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True) 
-            #symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
-    '''plt.figure()
-    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
+    plt.figure()
+    plt.imshow(inputMatrix[inputNumber][:,:,0])
     plt.show()
     plt.figure()
     plt.imshow(symInput[0,0,maxIndex])
-    plt.show()'''
+    plt.show()
+    plt.figure()
+    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
+    plt.show()
+    inspect_sym_input()
 
 weightsFile = "./mnist_3A_layer.txt"
 inputsFile = "./example_10.txt" 
 h5File = "./mnist_complicated.h5"
 modelFile = "./model.json"
 metaFile = "./tf_models/mnist.meta"
+noDropoutMetaFile = "./tf_models/mnist_no_dropout.meta"
 checkpoint = "./tf_models"
 
 #read_weights_from_h5_file(h5File)
 #parse_architecture_and_hyperparams(modelFile)
-read_weights_from_saved_tf_model()
+read_weights_from_saved_tf_model(noDropoutMetaFile)
 init(inputsFile, weightsFile, 28, 28)
-do_all_layers_keras(4)
+do_all_layers_keras(3)
 #do_all_layers(9, 0, 1)
 #plt.figure()
 #plt.imshow(inputMatrix[9][:,:,0])

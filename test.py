@@ -395,13 +395,19 @@ def tf_testing_2():
     x_image = tf.reshape(x, [-1, 28, 28, 1])
     
     h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
+    #h_conv1 = tf.Print(h_conv1, [h_conv1], message="First convolutional output:\n")
+    
     h_pool1 = max_pool_2x2(h_conv1)
+    #h_pool1 = tf.Print(h_pool1, [h_pool1], message="First pooling output:\n")
     
     W_conv2 = weight_variable([5, 5, 32, 64])
     b_conv2 = bias_variable([64])
     
     h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
+    #h_conv2 = tf.Print(h_conv2, [h_conv2], message="Second convolutional output:\n")
+    
     h_pool2 = max_pool_2x2(h_conv2)
+    #h_pool2 = tf.Print(h_pool2, [h_pool2], message="Second pooling output:\n")
     
     W_fc1 = weight_variable([7 * 7 * 64, 1024])
     b_fc1 = bias_variable([1024])
@@ -410,19 +416,22 @@ def tf_testing_2():
     h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
     
     keep_prob = tf.placeholder(tf.float32)
-    h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+    #h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
     
     W_fc2 = weight_variable([1024, 10])
     b_fc2 = bias_variable([10])
 
-    y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+    #y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+    y_conv = tf.matmul(h_fc1, W_fc2) + b_fc2 #No-dropout version
+    
+    #y_conv = tf.Print(y_conv, [y_conv], message="Final output:\n")
     
     cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
     correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-    saver = tf.train.Saver() #maybe try [W_conv1, b_conv1, h_pool1, W_conv2, b_conv2, h_pool2, W_fc1, b_fc1, h_fc1, W_fc2, b_fc2] as an argument? But it's supposed to save all the variables... Gotta find a way to parse this graph.
+    saver = tf.train.Saver({"W_conv1":W_conv1, "b_conv1":b_conv1, "W_conv2":W_conv2, "b_conv2":b_conv2, "W_fc1":W_fc1, "b_fc1":b_fc1, "W_fc2":W_fc2, "b_fc2":b_fc2})#maybe try [W_conv1, b_conv1, h_pool1, W_conv2, b_conv2, h_pool2, W_fc1, b_fc1, h_fc1, W_fc2, b_fc2] as an argument?
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for i in range(20000):
@@ -435,12 +444,43 @@ def tf_testing_2():
         
         print('test accuracy %g' % accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}, session=sess))
     
-        saver.save(sess, 'tf_models/mnist')
+        saver.save(sess, 'tf_models/mnist_no_dropout')
+        #saver.save(sess, 'tf_models/mnist')
+        np.set_printoptions(threshold=np.nan)
+        f = open("./example_10.txt", 'r')
+        lines = f.readlines()
+        thing = str.split(lines[0],',')
+        thing = [float(a)+0.5 for a in thing]
+        print(str(len(thing)))
+        im_data = np.array(thing[1:], dtype=np.float32)
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], keep_prob: 1.0}
+        result = h_conv1.eval(feed_dict)
+        '''print "Conv 1 out:"
+        print result.shape
+        #for i in range(result.shape[3]):
+        #    print result[0, :, :, i]
+        result = h_pool1.eval(feed_dict)
+        print "Pool 1 out:"
+        print result.shape
+        result = h_conv2.eval(feed_dict)
+        print "Conv 2 out:"
+        print result.shape
+        result = h_pool2.eval(feed_dict)
+        print "Pool 2 out:"
+        print result.shape
+        result = h_fc1.eval(feed_dict)
+        print "Dense 1 out:"
+        print result.shape'''
+        result = y_conv.eval(feed_dict)
+        print "Final out:"
+        print(str(result))
     
 def tf_testing_3():
     graph = tf.Graph()
     with tf.Session() as sess:
-        imported_graph = tf.train.import_meta_graph('tf_models/mnist.meta')
+        imported_graph = tf.train.import_meta_graph('tf_models/mnist_no_dropout.meta')
+        #imported_graph = tf.train.import_meta_graph('tf_models/mnist.meta')
         imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models'))
         graph = tf.get_default_graph()
         convLayer = 0
@@ -493,6 +533,7 @@ init("./example_10.txt", "./mnist_3A_layer.txt", 28, 28)
 #plt.show()
 #do_all_layers(9, 1, 0)
 
-tf_testing_3()
+tf_testing_2()
+#tf_testing_3()
     
 #pool_testing(2,2)
