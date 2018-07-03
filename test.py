@@ -416,13 +416,13 @@ def tf_testing_2():
     h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
     
     keep_prob = tf.placeholder(tf.float32)
-    #h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+    h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
     
     W_fc2 = weight_variable([1024, 10])
     b_fc2 = bias_variable([10])
 
-    #y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
-    y_conv = tf.matmul(h_fc1, W_fc2) + b_fc2 #No-dropout version
+    y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+    #y_conv = tf.matmul(h_fc1, W_fc2) + b_fc2 #No-dropout version
     
     #y_conv = tf.Print(y_conv, [y_conv], message="Final output:\n")
     
@@ -444,8 +444,8 @@ def tf_testing_2():
         
         print('test accuracy %g' % accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}, session=sess))
     
-        saver.save(sess, 'tf_models/mnist_no_dropout')
-        #saver.save(sess, 'tf_models/mnist')
+        #saver.save(sess, 'tf_models/mnist_no_dropout')
+        saver.save(sess, 'tf_models/mnist')
         np.set_printoptions(threshold=np.nan)
         f = open("./example_10.txt", 'r')
         lines = f.readlines()
