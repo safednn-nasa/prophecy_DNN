@@ -1,7 +1,7 @@
 #Just a test playground to mess around with bits and pieces before they're placed in the full-scale implementations.
 
 import numpy as np;
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import time
 import h5py
 import tensorflow as tf
@@ -13,6 +13,7 @@ from tensorflow.examples.tutorials.mnist import input_data
 weightMatrix = None
 biasMatrix = None
 inputMatrix = None
+labelMatrix = None
 symInput = None
 
 convWeightMatrix = None
@@ -26,21 +27,29 @@ convParams = []
 
 #Assumed format of inputs file: list of inputs of size S+1, where the first element is discardable.
 #Populates inputMatrix, a matrix of N 1-by-1-by-height-by-width-by 4D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k. Assuming single, 2D images.
-def read_inputs_from_file(inputFile, height, width):
-    global inputMatrix
+def read_inputs_from_file(inputFile, height, width, plusPointFive=True):
+    global inputMatrix, labelMatrix
     with open(inputFile) as f:
         lines = f.readlines()
         print len(lines), "examples"
         inputMatrix = np.empty(len(lines),dtype=list)
+        labelMatrix = np.zeros(len(lines),dtype=int)
         for l in range(len(lines)):
             k = [float(stringIn) for stringIn in lines[l].split(',')[1:]] #This is to remove the useless 1 at the start of each string. Not sure why that's there.
+            labelMatrix[l] = lines[l].split(',')[0]
             inputMatrix[l] = np.zeros((1, 1, height, width),dtype=float) #we're asuming that everything is one 2D image for now. The 1s are just to keep numpy happy.
             count = 0
             for i in range(height):
                 for j in range(width):
-                    inputMatrix[l][0][0][i][j] = k[count] +0.5
+                    if(plusPointFive):
+                        inputMatrix[l][0][0][i][j] = k[count] + 0.5
+                    else:
+                        inputMatrix[l][0][0][i][j] = k[count]
                     count += 1
             #inputMatrix[l] = np.transpose(k) #provides Nx1 output
+            
+#def read_inputs_from_csv(inputFile, height, width):
+    #global inputMatrix
     
 #Assumed format of weights file: [N=numberOfLayers\n\n(X=heightOfFilter,Y=widthOfFilter\n(Z=csvOfXTimesYWeights)\n(B=csvOfYBiases)\n\n)*N]
 #Populates weightMatrix, a 3D matrix of N 2D matrices with X rows and Y columns, and biasMatrix, a 2D matrix of N rows where each row is a list of Y biases for the respective filters 
@@ -235,10 +244,10 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1):
     print ""
     return out
 
-def init(inputFile, weightFile, inputHeight, inputWidth):
+def init(inputFile, weightFile, inputHeight, inputWidth, plusPointFive=True):
     print "Initializing..."
     global symInput
-    read_inputs_from_file(inputFile, inputHeight, inputWidth)
+    read_inputs_from_file(inputFile, inputHeight, inputWidth, plusPointFive)
     read_weights_from_file(weightFile)
     symInput = np.zeros((inputHeight, inputWidth, 1, inputHeight, inputWidth))
     for i in range(inputHeight):
@@ -353,6 +362,15 @@ def pool_testing(size, stride):
                 out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
     print out
     
+def get_top_pixels(x, percent):
+    temp = x.flatten()
+    top_values = np.unique(temp)[-int(len(np.unique(temp)) * percent):]
+    print "Returning", int(len(np.unique(temp)) * percent), "pixels"
+    for i in range(len(temp)):
+        if temp[i] not in top_values:
+            temp[i] = 0
+    return temp.reshape(x.shape)
+    
 def tf_testing_1():
     mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
     sess = tf.InteractiveSession()
@@ -429,6 +447,10 @@ def tf_testing_2():
     cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
     correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+    
+    gradients = tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x)
+    gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
+    
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
     saver = tf.train.Saver({"W_conv1":W_conv1, "b_conv1":b_conv1, "W_conv2":W_conv2, "b_conv2":b_conv2, "W_fc1":W_fc1, "b_fc1":b_fc1, "W_fc2":W_fc2, "b_fc2":b_fc2})#maybe try [W_conv1, b_conv1, h_pool1, W_conv2, b_conv2, h_pool2, W_fc1, b_fc1, h_fc1, W_fc2, b_fc2] as an argument?
@@ -445,41 +467,34 @@ def tf_testing_2():
         print('test accuracy %g' % accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}, session=sess))
     
         #saver.save(sess, 'tf_models/mnist_no_dropout')
-        saver.save(sess, 'tf_models/mnist')
+        #saver.save(sess, 'tf_models/mnist')
+        saver.save(sess, 'tf_models/gradients_testing_2')
         np.set_printoptions(threshold=np.nan)
         f = open("./example_10.txt", 'r')
         lines = f.readlines()
-        thing = str.split(lines[0],',')
-        thing = [float(a)+0.5 for a in thing]
-        print(str(len(thing)))
-        im_data = np.array(thing[1:], dtype=np.float32)
-        data = np.ndarray.flatten(im_data)
-        feed_dict = {x:[data], keep_prob: 1.0}
-        result = h_conv1.eval(feed_dict)
-        '''print "Conv 1 out:"
-        print result.shape
-        #for i in range(result.shape[3]):
-        #    print result[0, :, :, i]
-        result = h_pool1.eval(feed_dict)
-        print "Pool 1 out:"
-        print result.shape
-        result = h_conv2.eval(feed_dict)
-        print "Conv 2 out:"
-        print result.shape
-        result = h_pool2.eval(feed_dict)
-        print "Pool 2 out:"
-        print result.shape
-        result = h_fc1.eval(feed_dict)
-        print "Dense 1 out:"
-        print result.shape'''
-        result = y_conv.eval(feed_dict)
-        print "Final out:"
-        print(str(result))
+        for i in range(10):
+            thing = str.split(lines[i],',')
+            thing = [float(a)+0.5 for a in thing]
+            #print len(thing)
+            im_data = np.array(thing[1:], dtype=np.float32)
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], keep_prob: 1.0}
+            #result = h_conv1.eval(feed_dict)
+            result = gradients.eval(feed_dict)
+            result = get_top_pixels(result, 0.2)
+            result = result.reshape(28, 28)
+            plt.figure()
+            plt.imshow(result)
+            plt.savefig('./result_images/gradient_test_%d'%i)
+        #plt.show()
+        #print result.shape
+        #print "Gradients:"
+        #print result
     
 def tf_testing_3():
     graph = tf.Graph()
     with tf.Session() as sess:
-        imported_graph = tf.train.import_meta_graph('tf_models/mnist_no_dropout.meta')
+        imported_graph = tf.train.import_meta_graph('tf_models/gradients_testing.meta')
         #imported_graph = tf.train.import_meta_graph('tf_models/mnist.meta')
         imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models'))
         graph = tf.get_default_graph()
@@ -523,13 +538,25 @@ def tf_testing_3():
             print v.shape
             #temp = sess.run(v)
             #print temp
+        '''for op in graph.get_operations():
+            print op.name
+            print op.values()'''
 
 #temp = inputMatrix[0]
+weightsFile = "./mnist_3A_layer.txt"
+inputsFile = "./mnist_test.csv" 
+h5File = "./mnist_complicated.h5"
+modelFile = "./model.json"
+metaFile = "./tf_models/mnist.meta"
+noDropoutMetaFile = "./tf_models/mnist_no_dropout.meta"
+checkpoint = "./tf_models"
+inputIndex = 9
 
-init("./example_10.txt", "./mnist_3A_layer.txt", 28, 28)
+#init(inputsFile, weightsFile, 28, 28, False)
 #print symInput.shape
+#print labelMatrix[666]
 #plt.figure()
-#plt.imshow(inputMatrix[0][0,0])
+#plt.imshow(inputMatrix[666][0,0])
 #plt.show()
 #do_all_layers(9, 1, 0)
 
