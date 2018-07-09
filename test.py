@@ -486,16 +486,88 @@ def tf_testing_2():
             result1 = result1.reshape(28, 28)
             plt.figure()
             plt.imshow(result1)
-            plt.savefig('./result_images/gradient_test_pre_softmax_%d'%i)
+            plt.savefig('./result_images/gradient_test/Trained_on_10k/gradient_test_pre_softmax_%d'%i)
             result2 = get_top_pixels(np.multiply(base_result, data), 0.2)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(result2)
-            plt.savefig('./result_images/gradient_test_pre_softmax_mult_input_%d'%i)
+            plt.savefig('./result_images/gradient_test/Trained_on_10k/gradient_test_pre_softmax_mult_input_%d'%i)
         #plt.show()
         #print result.shape
         #print "Gradients:"
         #print result
+        
+def tf_relu_network():
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    x = tf.placeholder(tf.float32, shape=[None, 784])
+    y_ = tf.placeholder(tf.float32, shape=[None, 10])
+    
+    W_conv1 = weight_variable([784, 10])
+    b_conv1 = bias_variable([10])
+    x_image = tf.reshape(x, [-1, 784])
+    
+    h_conv1 = tf.matmul(x_image, W_conv1) + b_conv1 
+    
+    W_conv2 = weight_variable([10, 10])
+    b_conv2 = bias_variable([10])
+    
+    h_conv2 = tf.matmul(h_conv1, W_conv2) + b_conv2
+    
+    W_conv3 = weight_variable([10, 10])
+    b_conv3 = bias_variable([10])
+    
+    h_conv3 = tf.matmul(h_conv2, W_conv3) + b_conv3
+    
+    W_conv4 = weight_variable([10, 10])
+    b_conv4 = bias_variable([10])
+    
+    y_conv = tf.matmul(h_conv3, W_conv4) + b_conv4
+    
+    cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
+    train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
+    correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+    
+    #gradients = tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x)
+    gradients = tf.gradients(tf.reduce_max(y_conv), x)
+    gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
+    
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for i in range(20000):
+            batch = mnist.train.next_batch(50)
+            if i % 100 == 0:
+                train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1]}, session=sess)
+                print('step %d, training accuracy %g' % (i, train_accuracy))
+                #tf.train.Saver().save(sess, 'tf_models/mnist_iter', global_step=i)
+            train_step.run(feed_dict={x: batch[0], y_: batch[1]}, session=sess)
+        
+        print('test accuracy %g' % accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels}, session=sess))
+    
+        saver.save(sess, 'tf_models/mnist_relu_network')
+        f = open("./example_10.txt", 'r')
+        lines = f.readlines()
+        for i in range(10):
+            thing = str.split(lines[i],',')
+            thing = [float(a)+0.5 for a in thing]
+            #print len(thing)
+            im_data = np.array(thing[1:], dtype=np.float32)
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data]}
+            #result = h_conv1.eval(feed_dict)
+            base_result = gradients.eval(feed_dict)
+            result1 = get_top_pixels(base_result, 0.2)
+            result1 = result1.reshape(28, 28)
+            plt.figure()
+            plt.imshow(result1)
+            plt.savefig('./result_images/gradient_test/relu_pre_softmax_%d'%i)
+            result2 = get_top_pixels(np.multiply(base_result, data), 0.2)
+            result2 = result2.reshape(28, 28)
+            plt.figure()
+            plt.imshow(result2)
+            plt.savefig('./result_images/gradient_test/relu_pre_softmax_mult_input_%d'%i)
     
 def tf_testing_3():
     graph = tf.Graph()
@@ -566,7 +638,8 @@ inputIndex = 9
 #plt.show()
 #do_all_layers(9, 1, 0)
 
-tf_testing_2()
+#tf_testing_2()
 #tf_testing_3()
+tf_relu_network()
     
 #pool_testing(2,2)
