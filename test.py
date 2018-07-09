@@ -448,7 +448,8 @@ def tf_testing_2():
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
     correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
     
-    gradients = tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x)
+    #gradients = tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x)
+    gradients = tf.gradients(tf.reduce_max(y_conv), x)
     gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
     
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
@@ -456,7 +457,7 @@ def tf_testing_2():
     saver = tf.train.Saver({"W_conv1":W_conv1, "b_conv1":b_conv1, "W_conv2":W_conv2, "b_conv2":b_conv2, "W_fc1":W_fc1, "b_fc1":b_fc1, "W_fc2":W_fc2, "b_fc2":b_fc2})#maybe try [W_conv1, b_conv1, h_pool1, W_conv2, b_conv2, h_pool2, W_fc1, b_fc1, h_fc1, W_fc2, b_fc2] as an argument?
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for i in range(20000):
+        for i in range(10000):
             batch = mnist.train.next_batch(50)
             if i % 100 == 0:
                 train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0}, session=sess)
@@ -468,7 +469,7 @@ def tf_testing_2():
     
         #saver.save(sess, 'tf_models/mnist_no_dropout')
         #saver.save(sess, 'tf_models/mnist')
-        saver.save(sess, 'tf_models/gradients_testing_20000')
+        saver.save(sess, 'tf_models/gradients_testing_10000_2')
         np.set_printoptions(threshold=np.nan)
         f = open("./example_10.txt", 'r')
         lines = f.readlines()
@@ -485,12 +486,12 @@ def tf_testing_2():
             result1 = result1.reshape(28, 28)
             plt.figure()
             plt.imshow(result1)
-            plt.savefig('./result_images/gradient_test_%d'%i)
+            plt.savefig('./result_images/gradient_test_pre_softmax_%d'%i)
             result2 = get_top_pixels(np.multiply(base_result, data), 0.2)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(result2)
-            plt.savefig('./result_images/gradient_test_mult_input_%d'%i)
+            plt.savefig('./result_images/gradient_test_pre_softmax_mult_input_%d'%i)
         #plt.show()
         #print result.shape
         #print "Gradients:"
