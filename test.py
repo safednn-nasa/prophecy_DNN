@@ -468,7 +468,7 @@ def tf_testing_2():
     
         #saver.save(sess, 'tf_models/mnist_no_dropout')
         #saver.save(sess, 'tf_models/mnist')
-        saver.save(sess, 'tf_models/gradients_testing_2')
+        saver.save(sess, 'tf_models/gradients_testing_20000')
         np.set_printoptions(threshold=np.nan)
         f = open("./example_10.txt", 'r')
         lines = f.readlines()
@@ -480,12 +480,17 @@ def tf_testing_2():
             data = np.ndarray.flatten(im_data)
             feed_dict = {x:[data], keep_prob: 1.0}
             #result = h_conv1.eval(feed_dict)
-            result = gradients.eval(feed_dict)
-            result = get_top_pixels(result, 0.2)
-            result = result.reshape(28, 28)
+            base_result = gradients.eval(feed_dict)
+            result1 = get_top_pixels(base_result, 0.2)
+            result1 = result1.reshape(28, 28)
             plt.figure()
-            plt.imshow(result)
+            plt.imshow(result1)
             plt.savefig('./result_images/gradient_test_%d'%i)
+            result2 = get_top_pixels(np.multiply(base_result, data), 0.2)
+            result2 = result2.reshape(28, 28)
+            plt.figure()
+            plt.imshow(result2)
+            plt.savefig('./result_images/gradient_test_mult_input_%d'%i)
         #plt.show()
         #print result.shape
         #print "Gradients:"
