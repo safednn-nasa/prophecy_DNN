@@ -6,10 +6,12 @@ import h5py
 import json
 import time
 import tensorflow as tf
+from random import randint
 
 weightMatrix = None
 biasMatrix = None
 inputMatrix = None
+labelMatrix = None
 symInput = None
 
 convWeightMatrix = None
@@ -23,19 +25,24 @@ convParams = []
 
 '''Assumed format of inputs file: list of inputs of size S+1, where the first element is discardable.
 Populates inputMatrix, a matrix of N height-by-width-by-1 3D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k.'''
-def read_inputs_from_file(inputFile, height, width):
-    global inputMatrix
+def read_inputs_from_file(inputFile, height, width, plusPointFive=True):
+    global inputMatrix, labelMatrix
     with open(inputFile) as f:
         lines = f.readlines()
         print len(lines), "examples"
         inputMatrix = np.empty(len(lines),dtype=list)
+        labelMatrix = np.zeros(len(lines),dtype=int)
         for l in range(len(lines)):
             k = [float(stringIn) for stringIn in lines[l].split(',')[1:]] #This is to remove the useless 1 at the start of each string. Not sure why that's there.
             inputMatrix[l] = np.zeros((height, width, 1),dtype=float) #we're asuming that everything is 2D for now. The 1 is just to keep numpy happy.
+            labelMatrix[l] = lines[l].split(',')[0]
             count = 0
             for i in range(height):
                 for j in range(width):
-                    inputMatrix[l][i][j] = k[count] + 0.5
+                    if plusPointFive:
+                        inputMatrix[l][i][j] = k[count] + 0.5
+                    else:
+                        inputMatrix[l][i][j] = k[count]
                     count += 1
             #inputMatrix[l] = np.transpose(k) #provides Nx1 output
             
@@ -279,7 +286,7 @@ def conv_layer_forward_ineff(input, filters, biases, stride=1, padding=1, keras=
     #print input_padded[4,0:w_filter,0]
     #print filters[0,0,0:h_filter,0:w_filter]
     for i in range(n_filters):
-        print "Applying filter", i
+        #print "Applying filter", i
         #print "Bias:", biases[i]
         for j in range(h_out):
             for k in range(w_out):
@@ -390,7 +397,7 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
     #print "Padded input shape:", input_padded.shape, "filters shape:", filters.shape
     out = np.zeros((h_out, w_out, n_filters, h_x, w_x))
     for i in range(n_filters):
-        print "Applying sym filter", i
+        #print "Applying sym filter", i
         for j in range(h_out):
             for k in range(w_out):
                 rowIndex = j*stride
@@ -437,15 +444,18 @@ def unused_sym_conv(input, filter, b, stride=1, padding=1):
     #print "output shape",out.shape
     return out;
     
-
-def init(inputFile, weightFile, inputHeight, inputWidth):
+def init_symInput(inputHeight, inputWidth):
     global symInput
-    read_inputs_from_file(inputFile, inputHeight, inputWidth)
-    read_weights_from_file(weightFile)
     symInput = np.zeros((inputHeight, inputWidth, 1, inputHeight, inputWidth))
     for i in range(inputHeight):
         for j in range(inputWidth):
             symInput[i,j,0,i,j] = 1
+
+def init(inputFile, weightFile, inputHeight, inputWidth, plusPointFive=True):
+    global symInput
+    #read_inputs_from_file(inputFile, inputHeight, inputWidth, plusPointFive)
+    read_weights_from_file(weightFile)
+    init_symInput(inputHeight, inputWidth)
     
 '''This assumes that output is of form d x h x w. We don't do that, so this is just in case we bother to get conv_layer_forward working.'''
 def classify(processedArray):
@@ -516,6 +526,44 @@ def inspect_intermediate_output(temp):
         plt.figure()
         plt.imshow(thing)
         plt.show()
+        
+def get_top_pixels(x, percent):
+    temp = x.flatten()
+    top_values = np.unique(temp)[-int(len(np.unique(temp)) * percent):]
+    print "Returning", int(len(np.unique(temp)) * percent), "pixels"
+    for i in range(len(temp)):
+        if temp[i] not in top_values:
+            temp[i] = 0
+    return temp.reshape(x.shape)
+    
+def get_above_average_pixels(x):
+    temp = x.flatten()
+    average = np.average(np.unique(x.flatten()))
+    for i in range(len(temp)):
+        if not (temp[i] >= average):
+            temp[i] = 0
+    return temp.reshape(x.shape)
+    
+def get_most_different_pixels(x, y):
+    xTemp = x.flatten()
+    yTemp = y.flatten()
+    temp = np.zeros(xTemp.shape)
+    for i in range(len(xTemp)):
+        temp[i] = abs(xTemp[i] - yTemp[i])
+    temp = temp.reshape(x.shape)
+    return get_top_pixels(temp, 0.2)
+    
+def compare_pixel_ranks(x, y):
+    temp1 = x.flatten()
+    temp2 = y.flatten()
+    top_indices_1 = np.argsort(temp1)
+    top_indices_2 = np.argsort(temp2)
+    equal_locations = 0
+    for i in range(len(top_indices_1)):
+        if top_indices_1[i] == top_indices_2[i]:
+            equal_locations += 1
+    print "Ranks are equal at", equal_locations, "spots"
+    return equal_locations
     
 def do_all_layers(inputNumber, padding, stride):
     global weightMatrix, symInput
@@ -531,7 +579,7 @@ def do_all_layers(inputNumber, padding, stride):
         temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
         temp = relu_layer_forward(temp)
         symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
-        symInput = relu_layer_forward(symInput)
+        #symInput = relu_layer_forward(symInput)
         #temp = pool_layer_forward_ineff(temp, 1)
         temp = concolic_pool_layer_forward(temp, 1)
         #print temp
@@ -539,11 +587,43 @@ def do_all_layers(inputNumber, padding, stride):
     #classify(temp)
     #plt.imshow(inputMatrix[inputNumber][:,:,0])
     maxIndex = classify_ineff(temp)
-    plt.figure()
-    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
-    plt.figure()
+    #Input image
+    '''plt.figure()
+    plt.imshow(inputMatrix[inputNumber][:,:,0])
+    plt.show()'''
+    #Coeffs, abs coeffs, coeffs*input
+    '''plt.figure()
     plt.imshow(symInput[0,0,maxIndex])
     plt.show()
+    plt.figure()
+    plt.imshow(abs(symInput[0,0,maxIndex]))
+    plt.show()
+    plt.figure()
+    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
+    plt.show()'''
+    
+    #Top 20% of above
+    '''plt.figure()
+    plt.imshow(get_top_pixels(symInput[0,0,maxIndex], 0.2))
+    plt.show()
+    plt.figure()
+    plt.imshow(get_top_pixels(abs(symInput[0,0,maxIndex]), 0.2))
+    plt.show()
+    plt.figure()
+    plt.imshow(get_top_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), 0.2))
+    plt.show()'''
+    
+    #Above-average of above
+    '''plt.figure()
+    plt.imshow(get_above_average_pixels(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/Converted Relu Network/Above_average_images/Converted_relu_above_average_sym_coeffs_%d' % inputNumber)
+    plt.figure()
+    plt.imshow(get_above_average_pixels(abs(symInput[0,0,maxIndex])))
+    plt.savefig('./result_images/Converted Relu Network/Above_average_images/Converted_relu_above_average_abs_sym_coeffs_%d' % inputNumber)
+    plt.figure()
+    plt.imshow(get_above_average_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.savefig('./result_images/Converted Relu Network/Above_average_images/Converted_relu_above_average_sym_coeffs_times_in_%d' % inputNumber)'''
+    return maxIndex
     
 def do_all_layers_keras(inputNumber):
     global symInput, convWeightMatrix, denseWeightMatrix
@@ -590,7 +670,8 @@ def do_all_layers_keras(inputNumber):
             symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
-    plt.figure()
+    #Coeffs, abs(coeffs), coeffs*input
+    '''plt.figure()
     plt.imshow(inputMatrix[inputNumber][:,:,0])
     plt.show()
     plt.figure()
@@ -598,23 +679,368 @@ def do_all_layers_keras(inputNumber):
     plt.show()
     plt.figure()
     plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
+    plt.show()'''
+    
+    #Top 20% of the above
+    '''plt.figure()
+    plt.imshow(get_top_pixels(symInput[0,0,maxIndex], 0.2))
+    #plt.savefig('./result_images/mnist_deep/Top 20%% Images/mnist_deep_top_20%%_sym_coeffs_%d' % inputNumber)
     plt.show()
-    inspect_sym_input()
+    plt.figure()
+    plt.imshow(get_top_pixels(abs(symInput[0,0,maxIndex]), 0.2))
+    #plt.savefig('./result_images/mnist_deep/Top 20%% Images/mnist_deep_top_20%%_abs_sym_coeffs_%d' % inputNumber)
+    plt.show()
+    plt.figure()
+    plt.imshow(get_top_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), 0.2))
+    #plt.savefig('./result_images/mnist_deep/Top 20%% Images/mnist_deep_top_20%%_sym_coeffs_times_in_%d'% inputNumber)
+    plt.show()'''
+    
+    #Above-average pixels of the above
+    '''plt.figure()
+    plt.imshow(get_above_average_pixels(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_sym_coeffs_%d' % inputNumber)
+    plt.figure()
+    plt.imshow(get_above_average_pixels(abs(symInput[0,0,maxIndex])))
+    plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_abs_sym_coeffs_%d' % inputNumber)
+    plt.figure()
+    plt.imshow(get_above_average_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_sym_coeffs_times_in_%d' % inputNumber)'''
+    #inspect_sym_input()
+    return maxIndex
+    
+def do_all_layers_keras_for_image(squareImage):
+    global symInput, convWeightMatrix, denseWeightMatrix
+    temp = squareImage
+    convIndex = 0
+    denseIndex = 0
+    poolIndex = 0
+    activationIndex = 0
+    for layerType in layerTypeList:
+        if layerType.lower().startswith("conv"):
+            '''if convIndex == 1:
+                continue'''
+            #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
+            convIndex = convIndex + 1
+            #inspect_intermediate_output(temp)
+            #inspect_sym_input()
+        elif layerType.lower().startswith("activation"):
+            activationType = activationTypeList[activationIndex].lower()
+            if activationType == 'relu':
+                np.set_printoptions(threshold=np.nan)
+                temp = relu_layer_forward(temp)
+                '''for i in range(temp.shape[0]):
+                    for j in range(temp.shape[1]):
+                        print temp[i, j]'''
+                '''for i in range(temp.shape[2]):
+                    print temp[:, :, i]'''
+                #symInput = relu_layer_forward(symInput)
+            activationIndex = activationIndex + 1
+        elif layerType.lower().startswith("maxpool"):
+            #inspect_intermediate_output(temp)
+            #inspect_sym_input()
+            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            #inspect_intermediate_output(temp)
+            #inspect_sym_input()
+            poolIndex = poolIndex + 1 
+        elif layerType.lower().startswith("flatten"):
+            pass
+        elif layerType.lower().startswith("dense"):
+            tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
+            temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            denseIndex = denseIndex + 1
+    maxIndex = classify_ineff(temp)
+    return maxIndex
+    
+def do_experiment(inputsFile, weightsFile, metaFile, numberOfImages, outputFile):
+    read_weights_from_saved_tf_model(metaFile)
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    with open(outputFile, "w") as f:
+        for i in range(numberOfImages):
+            init(inputsFile, weightsFile, 28, 28)
+            inputIndex = randint(0, len(inputMatrix))
+            
+            kerasResult = do_all_layers_keras(inputIndex)
+            kerasSymOut = symInput[0,0,kerasResult]
+            #Top 20% of pixels
+            '''plt.figure()
+            plt.imshow(get_top_pixels(kerasSymOut, 0.2))
+            plt.savefig('./result_images/mnist_deep/Top 20%% Images/50_inputs_test/mnist_deep_top_20%%_sym_coeffs_%d'%i)
+            plt.figure()
+            plt.imshow(get_top_pixels(abs(kerasSymOut), 0.2))
+            plt.savefig('./result_images/mnist_deep/Top 20%% Images/50_inputs_test/mnist_deep_top_20%%_abs_sym_coeffs_%d'%i)
+            plt.figure()
+            plt.imshow(get_top_pixels(np.multiply(kerasSymOut, inputMatrix[inputIndex][:,:,0]), 0.2))
+            plt.savefig('./result_images/mnist_deep/Top 20%% Images/50_inputs_test/mnist_deep_top_20%%_sym_coeffs_times_in_%d'%i)'''
+            #Above-average pixels
+            '''plt.figure()
+            plt.imshow(get_above_average_pixels(kerasSymOut))
+            plt.savefig('./result_images/mnist_deep/Above_average_images/50_inputs_test/mnist_deep_above_average_sym_coeffs_%d' % i)
+            plt.figure()
+            plt.imshow(get_above_average_pixels(abs(kerasSymOut)))
+            plt.savefig('./result_images/mnist_deep/Above_average_images/50_inputs_test/mnist_deep_above_average_abs_sym_coeffs_%d' % i)
+            plt.figure()
+            plt.imshow(get_above_average_pixels(np.multiply(kerasSymOut, inputMatrix[inputIndex][:,:,0])))
+            plt.savefig('./result_images/mnist_deep/Above_average_images/50_inputs_test/mnist_deep_above_average_sym_coeffs_times_in_%d' % i)'''
+            
+            init(inputsFile, weightsFile, 28, 28)
+            reluResult = do_all_layers(inputIndex, 0, 1)
+            reluSymOut = symInput[0,0,reluResult]
+            #Top 20% of pixels
+            '''plt.figure()
+            plt.imshow(get_top_pixels(reluSymOut, 0.2))
+            plt.savefig('./result_images/Converted Relu Network/Top 20%% Images/50_inputs_test/Converted_relu_top_20%%_sym_coeffs_%d'%i)
+            plt.figure()
+            plt.imshow(get_top_pixels(abs(reluSymOut), 0.2))
+            plt.savefig('./result_images/Converted Relu Network/Top 20%% Images/50_inputs_test/Converted_relu_top_20%%_abs_sym_coeffs_%d'%i)
+            plt.figure()
+            plt.imshow(get_top_pixels(np.multiply(reluSymOut, inputMatrix[inputIndex][:,:,0]), 0.2))
+            plt.savefig('./result_images/Converted Relu Network/Top 20%% Images/50_inputs_test/Converted_relu_top_20%%_sym_coeffs_times_in_%d'%i)'''
+            #Above-average pixels
+            '''plt.figure()
+            plt.imshow(get_above_average_pixels(reluSymOut))
+            plt.savefig('./result_images/Converted Relu Network/Above_average_images/50_inputs_test/Converted_relu_above_average_sym_coeffs_%d' % i)
+            plt.figure()
+            plt.imshow(get_above_average_pixels(abs(reluSymOut)))
+            plt.savefig('./result_images/Converted Relu Network/Above_average_images/50_inputs_test/Converted_relu_above_average_abs_sym_coeffs_%d' % i)
+            plt.figure()
+            plt.imshow(get_above_average_pixels(np.multiply(reluSymOut, inputMatrix[inputIndex][:,:,0])))
+            plt.savefig('./result_images/Converted Relu Network/Above_average_images/50_inputs_test/Converted_relu_above_average_sym_coeffs_times_in_%d' % i)'''
+            
+            
+            if kerasResult != reluResult or kerasResult != labelMatrix[inputIndex]:
+                f.write("Houston, we have a problem: ")
+                if kerasResult != reluResult:
+                    f.write("Outputs don't match: %d (keras), %d\n"%(kerasResult, reluResult))
+                else:
+                    f.write("Keras: %d, actual: %d\n"%(kerasResult, labelMatrix[inputIndex]))
+            x = compare_pixel_ranks(kerasSymOut, reluSymOut)
+            y = compare_pixel_ranks(abs(kerasSymOut), abs(reluSymOut))
+            z = compare_pixel_ranks(np.multiply(kerasSymOut, inputMatrix[inputIndex][:,:,0]), np.multiply(reluSymOut, inputMatrix[inputIndex][:,:,0]))
+            f.write("%d %d %d\n"%(x,y,z))
+
+def manhattan_distance(image0, image1):
+    total = 0
+    for i in range(image0.shape[0]):
+        for j in range(image0.shape[1]):
+            total += abs(image0[i,j] - image1[i,j])
+    return total
+    
+def euclidean_distance(x, y):
+    total = 0
+    for i in range(x.shape[0]):
+        for j in range(x.shape[0]):
+            total += (x[i,j] - y[i,j]) ** 2
+    return np.sqrt(total)
+
+def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1):
+    read_weights_from_saved_tf_model(metaFile)
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    inputImage = None
+    correctLabel = -1
+    if inputIndex == -1:
+        inputIndex = randint(0, len(inputMatrix))
+        inputImage = inputMatrix[inputIndex]
+        correctLabel = labelMatrix[inputIndex]
+    else:
+        inputImage = exampleInputMatrix[inputIndex]
+        correctLabel = inputIndex
+    print "Our image is a", correctLabel
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    for i in range(len(inputMatrix)):
+        if labelMatrix[i] == correctLabel:
+            continue
+        #distance = euclidean_distance(inputImage, inputMatrix[i])
+        distance = manhattan_distance(inputImage, inputMatrix[i])
+        if distance < minDistance:
+            minDistance = distance
+            closestImageIndex = i
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    '''plt.figure()
+    plt.imshow(inputImage[:,:,0])
+    plt.show()'''
+    plt.figure()
+    plt.imshow(inputMatrix[closestImageIndex][:,:,0])
+    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image' % correctLabel)
+    plt.close()
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_keras_for_image(inputImage)
+    if inputResult != correctLabel:
+        print "Error: incorrect prediction, correct label is", correctLabel
+        return -1
+    inputSymOut = symInput[0,0,inputResult]
+    plt.figure()
+    plt.imshow(inputSymOut)
+    plt.savefig('./result_images/Differential_attributions/%d\'s_coeffs' % correctLabel)
+    plt.imshow(get_top_pixels(inputSymOut, 0.2))
+    plt.savefig('./result_images/Differential_attributions/%d\'s_coeffs_top_20%%' % correctLabel)
+    plt.close()
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    closestResult = do_all_layers_keras_for_image(inputMatrix[closestImageIndex])
+    if closestResult != labelMatrix[closestImageIndex]:
+        print "Error: incorrect prediction, correct label is", labelMatrix[closestImageIndex]
+        return -1
+    closestSymOut = symInput[0,0,closestResult]
+    plt.figure()
+    plt.imshow(closestSymOut)
+    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image_coeffs' % correctLabel)
+    plt.imshow(get_top_pixels(closestSymOut, 0.2))
+    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image_coeffs_top_20%%' % correctLabel)
+    plt.close()
+    #plt.show()
+    symDistance = manhattan_distance(inputSymOut, closestSymOut)
+    print "Distance between the two sets of coeffs:", symDistance
+    plt.figure()
+    plt.imshow(get_most_different_pixels(inputSymOut, closestSymOut))
+    plt.savefig('./result_images/Differential_attributions/%d_vs_%d_different_coeffs_top_20%%' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(np.multiply(inputSymOut, closestSymOut))
+    plt.savefig('./result_images/Differential_attributions/%d_coeffs_times_closest_coeffs' % correctLabel)
+    plt.imshow(get_top_pixels(np.multiply(inputSymOut, closestSymOut), 0.2))
+    plt.savefig('./result_images/Differential_attributions/%d_coeffs_times_closest_coeffs_top_20%%' % correctLabel)
+    #plt.show()
+    return closestImageIndex
+    
+def random_distances_experiment(inputFile, metaFile, inputIndex=-1):
+    read_weights_from_saved_tf_model(metaFile)
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    inputImage = None
+    correctLabel = -1
+    if inputIndex == -1:
+        inputIndex = randint(0, len(inputMatrix))
+        inputImage = inputMatrix[inputIndex]
+        correctLabel = labelMatrix[inputIndex]
+    else:
+        inputImage = exampleInputMatrix[inputIndex]
+        correctLabel = inputIndex
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    for i in range(len(inputMatrix)):
+        if labelMatrix[i] == correctLabel:
+            continue
+        #distance = euclidean_distance(inputImage, inputMatrix[i])
+        distance = manhattan_distance(inputImage, inputMatrix[i])
+        if distance < minDistance:
+            minDistance = distance
+            closestImageIndex = i
+    
+    randomImageIndices = np.full(10, -1)
+    while -1 in randomImageIndices:
+        randomImage = randint(0, len(inputMatrix))
+        if randomImageIndices[labelMatrix[randomImage]] == -1:
+            randomImageIndices[labelMatrix[randomImage]] = randomImage
+    print "Indices of random images:", randomImageIndices        
+    
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_keras_for_image(inputImage)
+    inputSymOut = symInput[0,0,inputResult]
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    closestResult = do_all_layers_keras_for_image(inputMatrix[closestImageIndex])
+    closestSymOut = symInput[0,0,closestResult]
+    closestImageCoeffDistance = manhattan_distance(inputSymOut, closestSymOut)
+    
+    imageDistances = np.full(10, -1)
+    coeffDistances = np.full(10, -1)
+    for i in range(len(randomImageIndices)):
+        if i == correctLabel:
+            continue
+        imageDistances[i] = manhattan_distance(inputImage, inputMatrix[randomImageIndices[i]])
+        init_symInput(inputImage.shape[0],inputImage.shape[1])
+        randomImageResult = do_all_layers_keras_for_image(inputMatrix[randomImageIndices[i]])
+        randomImageSymOut = symInput[0,0,randomImageResult]
+        coeffDistances[i] = manhattan_distance(inputSymOut, randomImageSymOut)
+
+    print "Our image is a", correctLabel
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    print "Closest image coeff distance:", closestImageCoeffDistance
+    print "Random image distances:", imageDistances
+    print "Random image coeff distances:", coeffDistances
+    
+def sufficient_distance_experiment(inputFile, metaFile, inputIndex=-1):
+    read_weights_from_saved_tf_model(metaFile)
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    inputImage = None
+    correctLabel = -1
+    if inputIndex == -1:
+        inputIndex = randint(0, len(inputMatrix))
+        inputImage = inputMatrix[inputIndex]
+        correctLabel = labelMatrix[inputIndex]
+    else:
+        inputImage = exampleInputMatrix[inputIndex]
+        correctLabel = inputIndex
+    imageDistances = np.full(10, 255*inputImage.shape[0]*inputImage.shape[1])
+    imageIndices = np.full(10, -1)
+    for i in range(len(inputMatrix)):
+        if labelMatrix[i] == correctLabel:
+            continue
+        #distance = euclidean_distance(inputImage, inputMatrix[i])
+        distance = manhattan_distance(inputImage, inputMatrix[i])
+        
+        if distance < imageDistances[labelMatrix[i]]:
+            imageDistances[labelMatrix[i]] = distance
+            imageIndices[labelMatrix[i]] = i
+    
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_keras_for_image(inputImage)
+    if inputResult != correctLabel:
+        print "Input incorrectly classified, problem"
+        return
+    inputSymOut = symInput[0,0,inputResult]
+    
+    coeffDistances = np.full(10, -1)
+    for i in range(len(imageIndices)):
+        if i == correctLabel:
+            continue
+        init_symInput(inputImage.shape[0],inputImage.shape[1])
+        imageResult = do_all_layers_keras_for_image(inputMatrix[imageIndices[i]])
+        imageSymOut = symInput[0,0,imageResult]
+        coeffDistances[i] = euclidean_distance(inputSymOut, imageSymOut)
+
+    print "Our image is a", correctLabel
+    imageDistances[correctLabel] = np.amin(imageDistances)+1
+    print "Our closest image is a", np.argmin(imageDistances)
+    print "It has a distance of", np.amin(imageDistances)
+    print "Our farthest type of image is a", np.argmax(imageDistances)
+    print "It has a distance of", np.amax(imageDistances)
+    imageDistances[correctLabel] = -1
+    print imageDistances
+    coeffDistances[correctLabel] = np.amax(coeffDistances)-1
+    print "Our closest coeffs are for", np.argmin(coeffDistances)
+    print "Our farthest coeffs are for", np.argmax(coeffDistances)
+    coeffDistances[correctLabel] = -1
+    print coeffDistances
+    
 
 weightsFile = "./mnist_3A_layer.txt"
-inputsFile = "./example_10.txt" 
+inputsFile = "./mnist_test.csv"
+exampleInputsFile = "./example_10.txt"
 h5File = "./mnist_complicated.h5"
 modelFile = "./model.json"
 metaFile = "./tf_models/mnist.meta"
+altMetaFile = './tf_models/gradients_testing_20000.meta'
 noDropoutMetaFile = "./tf_models/mnist_no_dropout.meta"
 checkpoint = "./tf_models"
+inputIndex = 8
+
+read_inputs_from_file(exampleInputsFile, 28, 28, True)
+exampleInputMatrix = np.multiply(255, inputMatrix)
+#exampleInputMatrix = inputMatrix
+
+#do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
+find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=2)
+#random_distances_experiment(inputsFile, metaFile, inputIndex=0)
+#sufficient_distance_experiment(inputsFile, metaFile, inputIndex=9)
 
 #read_weights_from_h5_file(h5File)
 #parse_architecture_and_hyperparams(modelFile)
-read_weights_from_saved_tf_model(noDropoutMetaFile)
-init(inputsFile, weightsFile, 28, 28)
-do_all_layers_keras(3)
-#do_all_layers(9, 0, 1)
-#plt.figure()
-#plt.imshow(inputMatrix[9][:,:,0])
-#plt.show()
+
+#init(exampleInputsFile, weightsFile, 28, 28, True)
+#do_all_layers(inputIndex, 0, 1)
+#read_weights_from_saved_tf_model(metaFile)
+#init(exampleInputsFile, weightsFile, 28, 28, True)
+#kerasResult = do_all_layers_keras(inputIndex)
