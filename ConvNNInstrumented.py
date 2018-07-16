@@ -160,6 +160,7 @@ def read_weights_from_saved_tf_model(metaFile='tf_models/mnist.meta', ckpoint='.
                 
             print v.shape
         layerTypeList[-1] = "" #Removes last activation layer.
+        sess.close()
     
 '''Assumed format of weights file (see mnist_3A_layer.txt for example): [N=numberOfLayers\n\n(X=heightOfFilter,Y=widthOfFilter\n(Z=csvOfXTimesYWeights)\n(B=csvOfYBiases)\n\n)*N]
 Populates weightMatrix, a 3D matrix of N 2D matrices with X rows and Y columns, and biasMatrix, a 2D matrix of N rows where each row is a list of Y biases for the respective filters '''
@@ -453,7 +454,7 @@ def init_symInput(inputHeight, inputWidth):
 
 def init(inputFile, weightFile, inputHeight, inputWidth, plusPointFive=True):
     global symInput
-    #read_inputs_from_file(inputFile, inputHeight, inputWidth, plusPointFive)
+    read_inputs_from_file(inputFile, inputHeight, inputWidth, plusPointFive)
     read_weights_from_file(weightFile)
     init_symInput(inputHeight, inputWidth)
     
@@ -551,19 +552,48 @@ def get_most_different_pixels(x, y):
     for i in range(len(xTemp)):
         temp[i] = abs(xTemp[i] - yTemp[i])
     temp = temp.reshape(x.shape)
-    return get_top_pixels(temp, 0.2)
+    return temp
     
-def compare_pixel_ranks(x, y):
+def compare_pixel_ranks(x, y, tolerance=0):
     temp1 = x.flatten()
     temp2 = y.flatten()
+    tolerance = tolerance/2
     top_indices_1 = np.argsort(temp1)
     top_indices_2 = np.argsort(temp2)
     equal_locations = 0
     for i in range(len(top_indices_1)):
-        if top_indices_1[i] == top_indices_2[i]:
+        if top_indices_1[i] <= top_indices_2[i]+len(temp1)*tolerance and top_indices_1[i] >= top_indices_2[i]-len(temp1)*tolerance:
             equal_locations += 1
     print "Ranks are equal at", equal_locations, "spots"
     return equal_locations
+    
+def image_based_on_pixel_ranks(x):
+    temp = x.flatten()
+    sortIndices = temp.argsort()
+    ranks = np.empty_like(sortIndices)
+    ranks[sortIndices] = np.arange(len(temp))
+    return ranks.reshape(x.shape)
+    
+def write_pixel_ranks_to_file(x, filename):
+    temp = x.flatten()
+    sortIndices = temp.argsort()
+    ranks = np.empty_like(sortIndices)
+    ranks[sortIndices] = np.arange(len(temp))
+    ranks = ranks.reshape(x.shape)
+    with open(filename, "w") as f:
+        for i in range(x.shape[0]):
+            for j in range(x.shape[1]):
+                f.write("%d\t" % ranks[i,j])
+            f.write("\n")
+    
+def normalize_to_255(x):
+    temp = x.flatten()
+    maximum = np.amax(temp)
+    minimum = np.amin(temp)
+    norm = np.multiply(np.array([(i - minimum) / (maximum - minimum) for i in temp]), 255)
+    '''for i in range (len(temp)):
+        temp[i] = temp[i]/maximum * 255'''
+    return norm.reshape(x.shape)
     
 def do_all_layers(inputNumber, padding, stride):
     global weightMatrix, symInput
@@ -592,15 +622,15 @@ def do_all_layers(inputNumber, padding, stride):
     plt.imshow(inputMatrix[inputNumber][:,:,0])
     plt.show()'''
     #Coeffs, abs coeffs, coeffs*input
+    plt.figure()
+    plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/Converted Relu Network/Converted_relu_network_sym_coeffs_%d' % inputNumber)
     '''plt.figure()
-    plt.imshow(symInput[0,0,maxIndex])
-    plt.show()
+    plt.imshow(abs(symInput[0,0,maxIndex]))'''
     plt.figure()
-    plt.imshow(abs(symInput[0,0,maxIndex]))
-    plt.show()
-    plt.figure()
-    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
-    plt.show()'''
+    plt.imshow(normalize_to_255(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.savefig('./result_images/Converted Relu Network/Converted_relu_network_sym_coeffs_times_in_%d' % inputNumber)
+    plt.close()
     
     #Top 20% of above
     '''plt.figure()
@@ -623,6 +653,16 @@ def do_all_layers(inputNumber, padding, stride):
     plt.figure()
     plt.imshow(get_above_average_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
     plt.savefig('./result_images/Converted Relu Network/Above_average_images/Converted_relu_above_average_sym_coeffs_times_in_%d' % inputNumber)'''
+    
+    #Pixel ranks of the above
+    plt.figure()
+    plt.imshow(image_based_on_pixel_ranks(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/Converted Relu Network/Pixel_ranks/Converted_relu_network_ranked_sym_coeffs_%d' % inputNumber)
+    write_pixel_ranks_to_file(symInput[0,0,maxIndex], './result_images/Converted Relu Network/Pixel_ranks/Converted_relu_network_sym_coeffs_ranks_%d.txt' % inputNumber)
+    plt.figure()
+    plt.imshow(image_based_on_pixel_ranks(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.savefig('./result_images/Converted Relu Network/Pixel_ranks/Converted_relu_network_ranked_sym_coeffs_times_in_%d' % inputNumber)
+    write_pixel_ranks_to_file(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), './result_images/Converted Relu Network/Pixel_ranks/Converted_relu_network_sym_coeffs_times_in_ranks_%d.txt' % inputNumber)
     return maxIndex
     
 def do_all_layers_keras(inputNumber):
@@ -671,15 +711,16 @@ def do_all_layers_keras(inputNumber):
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
     #Coeffs, abs(coeffs), coeffs*input
-    '''plt.figure()
+    plt.figure()
     plt.imshow(inputMatrix[inputNumber][:,:,0])
-    plt.show()
     plt.figure()
-    plt.imshow(symInput[0,0,maxIndex])
-    plt.show()
+    plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/mnist_deep/mnist_deep_sym_coeffs_%d' % inputNumber)
     plt.figure()
-    plt.imshow(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]))
-    plt.show()'''
+    plt.imshow(normalize_to_255(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.savefig('./result_images/mnist_deep/mnist_deep_sym_coeffs_%d_mult_input'%inputNumber)
+    plt.close()
+    #plt.show()
     
     #Top 20% of the above
     '''plt.figure()
@@ -705,6 +746,17 @@ def do_all_layers_keras(inputNumber):
     plt.figure()
     plt.imshow(get_above_average_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
     plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_sym_coeffs_times_in_%d' % inputNumber)'''
+    
+    #Pixel ranks of the above
+    plt.figure()
+    plt.imshow(image_based_on_pixel_ranks(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/mnist_deep/Pixel_ranks/mnist_deep_ranked_sym_coeffs_%d' % inputNumber)
+    write_pixel_ranks_to_file(symInput[0,0,maxIndex], './result_images/mnist_deep/Pixel_ranks/mnist_deep_sym_coeffs_ranks_%d.txt' % inputNumber)
+    plt.figure()
+    plt.imshow(image_based_on_pixel_ranks(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.savefig('./result_images/mnist_deep/Pixel_ranks/mnist_deep_ranked_sym_coeffs_times_in_%d' % inputNumber)
+    write_pixel_ranks_to_file(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), './result_images/mnist_deep/Pixel_ranks/mnist_deep_sym_coeffs_times_in_ranks_%d.txt' % inputNumber)
+    #plt.show()
     #inspect_sym_input()
     return maxIndex
     
@@ -836,9 +888,10 @@ def euclidean_distance(x, y):
             total += (x[i,j] - y[i,j]) ** 2
     return np.sqrt(total)
 
-def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1):
-    read_weights_from_saved_tf_model(metaFile)
+def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1, ckpoint='./tf_models'):
+    #read_weights_from_saved_tf_model(metaFile)
     read_inputs_from_file(inputsFile, 28, 28, False)
+    
     inputImage = None
     correctLabel = -1
     if inputIndex == -1:
@@ -851,57 +904,100 @@ def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1)
     print "Our image is a", correctLabel
     closestImageIndex = None
     minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
-    for i in range(len(inputMatrix)):
-        if labelMatrix[i] == correctLabel:
-            continue
-        #distance = euclidean_distance(inputImage, inputMatrix[i])
-        distance = manhattan_distance(inputImage, inputMatrix[i])
-        if distance < minDistance:
-            minDistance = distance
-            closestImageIndex = i
+    
+    #graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph(metaFile)
+        imported_graph.restore(sess, tf.train.latest_checkpoint(ckpoint))
+        graph = tf.get_default_graph()
+        x = tf.placeholder(tf.float32, shape=[None, 784])
+        kp = tf.placeholder(tf.float32)
+        for i in range(len(inputMatrix)):
+            if labelMatrix[i] == correctLabel:
+                continue
+            im_data = inputMatrix[i][:,:,0]
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], kp: 1.0}
+            gradients = graph.get_tensor_by_name("import/gradients:0")
+            #image_result = sess.run('import/gradients:0', feed_dict={x:[data], kp:1.0})
+            image_result = gradients.eval(feed_dict)
+            im_data = np.array(inputImage, dtype=np.float32)
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], keep_prob: 1.0}
+            input_result = gradients.eval(feed_dict=feed_dict)
+            distance = euclidean_distance(input_result, image_result)
+            #distance = manhattan_distance(inputImage, inputMatrix[i])
+            if distance < minDistance:
+                minDistance = distance
+                closestImageIndex = i
     print "Our closest image is a", labelMatrix[closestImageIndex]
     print "It has a distance of", minDistance
+    print "Closest image index:", closestImageIndex
     '''plt.figure()
     plt.imshow(inputImage[:,:,0])
     plt.show()'''
     plt.figure()
     plt.imshow(inputMatrix[closestImageIndex][:,:,0])
-    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image' % correctLabel)
+    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image' % correctLabel) # Just for reference
     plt.close()
+    
+    read_weights_from_saved_tf_model(metaFile)
+    
     init_symInput(inputImage.shape[0],inputImage.shape[1])
     inputResult = do_all_layers_keras_for_image(inputImage)
     if inputResult != correctLabel:
         print "Error: incorrect prediction, correct label is", correctLabel
         return -1
     inputSymOut = symInput[0,0,inputResult]
+    
+    #These are repeats from other experiments, but it helps to have them handy.
     plt.figure()
-    plt.imshow(inputSymOut)
+    plt.imshow(normalize_to_255(inputSymOut))
     plt.savefig('./result_images/Differential_attributions/%d\'s_coeffs' % correctLabel)
-    plt.imshow(get_top_pixels(inputSymOut, 0.2))
-    plt.savefig('./result_images/Differential_attributions/%d\'s_coeffs_top_20%%' % correctLabel)
+    '''plt.imshow(get_top_pixels(inputSymOut, 0.2))
+    plt.savefig('./result_images/Differential_attributions/%d\'s_coeffs_top_20%%' % correctLabel)'''
+    plt.imshow(image_based_on_pixel_ranks(inputSymOut))
+    plt.savefig('./result_images/Differential_attributions/%d\'s_ranked_sym_coeffs' % correctLabel)
     plt.close()
+    
     init_symInput(inputImage.shape[0],inputImage.shape[1])
     closestResult = do_all_layers_keras_for_image(inputMatrix[closestImageIndex])
     if closestResult != labelMatrix[closestImageIndex]:
         print "Error: incorrect prediction, correct label is", labelMatrix[closestImageIndex]
         return -1
     closestSymOut = symInput[0,0,closestResult]
+    
+    #The basic metrics for the closest image. Again, just to have them handy.
     plt.figure()
-    plt.imshow(closestSymOut)
+    plt.imshow(normalize_to_255(closestSymOut))
     plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image_coeffs' % correctLabel)
-    plt.imshow(get_top_pixels(closestSymOut, 0.2))
-    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image_coeffs_top_20%%' % correctLabel)
+    '''plt.imshow(get_top_pixels(closestSymOut, 0.2))
+    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image_coeffs_top_20%%' % correctLabel)'''
+    plt.imshow(image_based_on_pixel_ranks(closestSymOut))
+    plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image_coeffs_ranked' % correctLabel)
+    write_pixel_ranks_to_file(closestSymOut, './result_images/Differential_attributions/%d\'s_closest_image_coeffs_ranks.txt' % correctLabel)
     plt.close()
     #plt.show()
-    symDistance = manhattan_distance(inputSymOut, closestSymOut)
+    
+    #The actual differential analyses. First, the difference between the two sets of coeffs.
+    symDistance = euclidean_distance(inputSymOut, closestSymOut)
     print "Distance between the two sets of coeffs:", symDistance
     plt.figure()
-    plt.imshow(get_most_different_pixels(inputSymOut, closestSymOut))
-    plt.savefig('./result_images/Differential_attributions/%d_vs_%d_different_coeffs_top_20%%' % (correctLabel, labelMatrix[closestImageIndex]))
-    plt.imshow(np.multiply(inputSymOut, closestSymOut))
-    plt.savefig('./result_images/Differential_attributions/%d_coeffs_times_closest_coeffs' % correctLabel)
-    plt.imshow(get_top_pixels(np.multiply(inputSymOut, closestSymOut), 0.2))
-    plt.savefig('./result_images/Differential_attributions/%d_coeffs_times_closest_coeffs_top_20%%' % correctLabel)
+    plt.imshow(normalize_to_255(get_most_different_pixels(inputSymOut, closestSymOut)))
+    plt.savefig('./result_images/Differential_attributions/%d_vs_%d_different_coeffs' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(image_based_on_pixel_ranks(get_most_different_pixels(inputSymOut, closestSymOut)))
+    plt.savefig('./result_images/Differential_attributions/%d_vs_%d_different_coeffs_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    write_pixel_ranks_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/Differential_attributions/%d_vs_%d_different_coeffs_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    
+    #Next, difference between the two sets of coeffs times the input. 
+    plt.figure()
+    plt.imshow(normalize_to_255(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    plt.savefig('./result_images/Differential_attributions/%d_vs_%d_different_coeffs_times_in' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(image_based_on_pixel_ranks(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    plt.savefig('./result_images/Differential_attributions/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/Differential_attributions/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
     #plt.show()
     return closestImageIndex
     
@@ -1015,6 +1111,21 @@ def sufficient_distance_experiment(inputFile, metaFile, inputIndex=-1):
     coeffDistances[correctLabel] = -1
     print coeffDistances
     
+def get_percentage_same_ranks(igFileNum, experimentFile):
+    with open("./result_images/gradient_test/gradient_test_ranks_%d.txt" % igFileNum) as igF:
+        with open(experimentFile) as expF:
+            gradientLines = igF.readlines()
+            gradientRanks = np.arange(0)
+            for l in range(len(gradientLines)):
+                gradientRanks = np.append(gradientRanks, [int(stringIn) for stringIn in gradientLines[l].split('\t')[:-1]])
+            experimentLines = expF.readlines()
+            experimentRanks = np.arange(0)
+            for l in range(len(experimentLines)):
+                experimentRanks = np.append(experimentRanks, [int(stringIn) for stringIn in experimentLines[l].split('\t')[:-1]])
+            sameRanks = compare_pixel_ranks(gradientRanks, experimentRanks, 0.05)
+            print float(sameRanks)/len(experimentRanks)*100
+            return sameRanks/len(experimentRanks)
+
 
 weightsFile = "./mnist_3A_layer.txt"
 inputsFile = "./mnist_test.csv"
@@ -1025,16 +1136,19 @@ metaFile = "./tf_models/mnist.meta"
 altMetaFile = './tf_models/gradients_testing_20000.meta'
 noDropoutMetaFile = "./tf_models/mnist_no_dropout.meta"
 checkpoint = "./tf_models"
-inputIndex = 8
+integratedGradientsRankFileNumber = 9
+experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_9.txt"
+inputIndex = 2135
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
 exampleInputMatrix = np.multiply(255, inputMatrix)
 #exampleInputMatrix = inputMatrix
 
 #do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
-find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=2)
+find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=9, ckpoint=checkpoint)
 #random_distances_experiment(inputsFile, metaFile, inputIndex=0)
 #sufficient_distance_experiment(inputsFile, metaFile, inputIndex=9)
+#get_percentage_same_ranks(integratedGradientsRankFileNumber, experimentRanksFile)
 
 #read_weights_from_h5_file(h5File)
 #parse_architecture_and_hyperparams(modelFile)
@@ -1042,5 +1156,5 @@ find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=2)
 #init(exampleInputsFile, weightsFile, 28, 28, True)
 #do_all_layers(inputIndex, 0, 1)
 #read_weights_from_saved_tf_model(metaFile)
-#init(exampleInputsFile, weightsFile, 28, 28, True)
+#init(inputsFile, weightsFile, 28, 28, True)
 #kerasResult = do_all_layers_keras(inputIndex)

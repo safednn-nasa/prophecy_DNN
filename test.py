@@ -3,8 +3,9 @@
 import numpy as np;
 import matplotlib.pyplot as plt
 import time
-import h5py
+#import h5py
 import tensorflow as tf
+import integrated_gradients_tf as ig
 from tensorflow.python.saved_model import tag_constants
 from google.protobuf import json_format
 
@@ -371,6 +372,25 @@ def get_top_pixels(x, percent):
             temp[i] = 0
     return temp.reshape(x.shape)
     
+def write_pixel_ranks_to_file(x, filename):
+    temp = x.flatten()
+    sortIndices = temp.argsort()
+    ranks = np.empty_like(sortIndices)
+    ranks[sortIndices] = np.arange(len(temp))
+    ranks = ranks.reshape(x.shape)
+    with open(filename, "w") as f:
+        for i in range(x.shape[0]):
+            for j in range(x.shape[1]):
+                f.write("%d\t" % ranks[i,j])
+            f.write("\n")
+    
+def normalize_to_255(x):
+    temp = x.flatten()
+    maximum = np.amax(temp)
+    for i in range (len(temp)):
+        temp[i] = temp[i]/maximum * 255
+    return temp.reshape(x.shape)
+    
 def tf_testing_1():
     mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
     sess = tf.InteractiveSession()
@@ -406,52 +426,89 @@ def max_pool_2x2(x):
 def tf_testing_2():
     mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
     x = tf.placeholder(tf.float32, shape=[None, 784])
+    inter, stepsize, ref = ig.linear_inpterpolation(x, num_steps=50)
     y_ = tf.placeholder(tf.float32, shape=[None, 10])
     
     W_conv1 = weight_variable([5, 5, 1, 32])
     b_conv1 = bias_variable([32])
     x_image = tf.reshape(x, [-1, 28, 28, 1])
+    x_image_inter = tf.reshape(inter, [-1, 28, 28, 1])
     
-    h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
+    h_conv1 = tf.identity(tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1), name="import/h_conv1")
+    h_conv1_inter = tf.identity(tf.nn.relu(conv2d(x_image_inter, W_conv1) + b_conv1), name="import/h_conv1_inter")
     #h_conv1 = tf.Print(h_conv1, [h_conv1], message="First convolutional output:\n")
     
-    h_pool1 = max_pool_2x2(h_conv1)
+    h_pool1 = tf.identity(max_pool_2x2(h_conv1), name="import/h_pool1")
+    h_pool1_inter = tf.identity(max_pool_2x2(h_conv1_inter), name="import/h_pool1_inter")
     #h_pool1 = tf.Print(h_pool1, [h_pool1], message="First pooling output:\n")
     
     W_conv2 = weight_variable([5, 5, 32, 64])
     b_conv2 = bias_variable([64])
     
-    h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
+    h_conv2 = tf.identity(tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2), name="import/h_conv2")
+    h_conv2_inter = tf.identity(tf.nn.relu(conv2d(h_pool1_inter, W_conv2) + b_conv2), name="import/h_conv2_inter")
     #h_conv2 = tf.Print(h_conv2, [h_conv2], message="Second convolutional output:\n")
     
-    h_pool2 = max_pool_2x2(h_conv2)
+    h_pool2 = tf.identity(max_pool_2x2(h_conv2), name="h_pool2")
+    h_pool2_inter = tf.identity(max_pool_2x2(h_conv2_inter), name="h_pool2_inter")
     #h_pool2 = tf.Print(h_pool2, [h_pool2], message="Second pooling output:\n")
     
     W_fc1 = weight_variable([7 * 7 * 64, 1024])
     b_fc1 = bias_variable([1024])
 
-    h_pool2_flat = tf.reshape(h_pool2, [-1, 7*7*64])
-    h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+    h_pool2_flat = tf.identity(tf.reshape(h_pool2, [-1, 7*7*64]), name="import/h_pool2_flat")
+    h_pool2_flat_inter = tf.identity(tf.reshape(h_pool2_inter, [-1, 7*7*64]), name="import/h_pool2_flat_inter")
+    h_fc1 = tf.identity(tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1), name="import/h_fc1")
+    h_fc1_inter = tf.identity(tf.nn.relu(tf.matmul(h_pool2_flat_inter, W_fc1) + b_fc1), name="import/h_fc1_inter")
     
     keep_prob = tf.placeholder(tf.float32)
-    h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+    h_fc1_drop = tf.identity(tf.nn.dropout(h_fc1, keep_prob), name="import/h_fc1_drop")
+    h_fc1_drop_inter = tf.identity(tf.nn.dropout(h_fc1_inter, keep_prob), name="import/h_fc1_drop_inter")
     
     W_fc2 = weight_variable([1024, 10])
     b_fc2 = bias_variable([10])
 
-    y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
-    #y_conv = tf.matmul(h_fc1, W_fc2) + b_fc2 #No-dropout version
+    y_conv = tf.identity(tf.matmul(h_fc1_drop, W_fc2) + b_fc2, name="import/y_conv")
+    y_conv_inter = tf.identity(tf.matmul(h_fc1_drop_inter, W_fc2) + b_fc2, name="import/y_conv_inter")
+    #y_conv = tf.identity(tf.matmul(h_fc1, W_fc2) + b_fc2, name="import/y_conv") #No-dropout version
+    #y_conv_inter = tf.identity(tf.matmul(h_fc1_inter, W_fc2) + b_fc2, name="import/y_conv_inter") #No-dropout version
     
     #y_conv = tf.Print(y_conv, [y_conv], message="Final output:\n")
+    
+    prediction = tf.identity(tf.nn.softmax(y_conv), name="import/prediction")
+    prediction2 = tf.identity(tf.nn.softmax(y_conv_inter), name="import/prediction2")
+    
+    explanations = []
+    exp0 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 0], num_steps=50), name="import/exp0")
+    explanations.append(exp0)
+    exp1 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 1], num_steps=50), name="import/exp1")
+    explanations.append(exp1)
+    exp2 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 2], num_steps=50), name="import/exp2")
+    explanations.append(exp2)
+    exp3 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 3], num_steps=50), name="import/exp3")
+    explanations.append(exp3)
+    exp4 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 4], num_steps=50), name="import/exp4")
+    explanations.append(exp4)
+    exp5 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 5], num_steps=50), name="import/exp5")
+    explanations.append(exp5)
+    exp6 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 6], num_steps=50), name="import/exp6")
+    explanations.append(exp6)
+    exp7 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 7], num_steps=50), name="import/exp7")
+    explanations.append(exp7)
+    exp8 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 8], num_steps=50), name="import/exp8")
+    explanations.append(exp8)
+    exp9 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 9], num_steps=50), name="import/exp9")
+    explanations.append(exp9)
+    explantions = tf.identity(explanations, name="import/explanations")
     
     cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
     correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
     
     gradients_pre_softmax = tf.gradients(tf.reduce_max(y_conv), x)
-    gradients_pre_softmax = tf.Print(gradients_pre_softmax, [gradients_pre_softmax], message="Gradients pre softmax:\n")
+    gradients_pre_softmax = tf.identity(tf.Print(gradients_pre_softmax, [gradients_pre_softmax], message="Gradients pre softmax:\n"), name="import/gradients_pre_softmax")
     gradients = tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x)
-    gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
+    gradients = tf.identity(tf.Print(gradients, [gradients], message="Gradients:\n"), name="import/gradients")
     
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
@@ -469,8 +526,9 @@ def tf_testing_2():
         print('test accuracy %g' % accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}, session=sess))
     
         #saver.save(sess, 'tf_models/mnist_no_dropout')
-        #saver.save(sess, 'tf_models/mnist')
-        saver.save(sess, 'tf_models/gradients_testing_20000')
+        saver.save(sess, 'tf_models/mnist')
+        #saver.save(sess, 'tf_models/gradients_testing_20000')
+        #saver.save(sess, 'tf_models/ig_testing')
         np.set_printoptions(threshold=np.nan)
         f = open("./example_10.txt", 'r')
         lines = f.readlines()
@@ -483,28 +541,60 @@ def tf_testing_2():
             feed_dict = {x:[data], keep_prob: 1.0}
             #result = h_conv1.eval(feed_dict)
             base_result = gradients_pre_softmax.eval(feed_dict)
-            result1 = get_top_pixels(base_result, 0.2)
-            result1 = result1.reshape(28, 28)
+            #result1 = get_top_pixels(base_result, 0.2)
+            result1 = base_result.reshape(28, 28)
             plt.figure()
-            plt.imshow(result1)
+            plt.imshow(normalize_to_255(result1))
             plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_%d'%i)
-            result2 = get_top_pixels(np.multiply(base_result, data), 0.2)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_pre_softmax_ranks_%d.txt' % i)
+            result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(result2)
             plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_mult_input_%d'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
             
             base_result = gradients.eval(feed_dict)
-            result1 = get_top_pixels(base_result, 0.2)
-            result1 = result1.reshape(28, 28)
+            #result1 = get_top_pixels(base_result, 0.2)
+            result1 = base_result.reshape(28, 28)
             plt.figure()
-            plt.imshow(result1)
+            plt.imshow(normalize_to_255(result1))
             plt.savefig('./result_images/gradient_test/gradient_test_%d'%i)
-            result2 = get_top_pixels(np.multiply(base_result, data), 0.2)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_ranks_%d.txt'%i)
+            result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
-            plt.imshow(result2)
+            plt.imshow(normalize_to_255(result2))
             plt.savefig('./result_images/gradient_test/gradient_test_mult_input_%d'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_mult_input_ranks_%d.txt'%i)
+            plt.close()
+            
+            result = y_conv.eval(feed_dict)
+            print('Original output:')
+            print(str(result))
+            print(result)
+
+            result = prediction.eval(feed_dict)[0]
+            print('Prediction:')
+            print(result)
+
+            result1 = tf.argmax((prediction.eval(feed_dict)[0]),0)
+            print('Predicted Label:')
+            print(result1.eval())
+
+            result = prediction2.eval(feed_dict)
+            print('IG Prediction:')
+            print(result)
+
+            result = prediction2.eval(feed_dict)[:,result1.eval()]
+            print('IG Prediction Label:')
+            print(result)
+
+            result = (explanations[result1.eval()]).eval(feed_dict)
+            print('IG Attribution:')
+            print(result)
+            plt.imshow(normalize_to_255(result.reshape((28,28))))
+            plt.savefig('./result_images/gradient_test/integrated_gradients/integrated_gradients_%d' % i)
         #plt.show()
         #print result.shape
         #print "Gradients:"
