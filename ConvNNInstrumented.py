@@ -159,7 +159,8 @@ def read_weights_from_saved_tf_model(metaFile='tf_models/mnist.meta', ckpoint='.
                     denseLayer = denseLayer + 1
                 
             print v.shape
-        layerTypeList[-1] = "" #Removes last activation layer.
+        if(layerTypeList[-1] == 'activation'):
+            layerTypeList[-1] = "" #Removes last activation layer.
         sess.close()
     
 '''Assumed format of weights file (see mnist_3A_layer.txt for example): [N=numberOfLayers\n\n(X=heightOfFilter,Y=widthOfFilter\n(Z=csvOfXTimesYWeights)\n(B=csvOfYBiases)\n\n)*N]
@@ -508,14 +509,15 @@ def reshape_fc_weight_matrix(fcWeights, proper_shape):
                     temp[i,j,k,l] = fcWeights[index,i]
     return temp
 
-def inspect_sym_input():
+def inspect_sym_input(inputImage):
     for i in range(symInput.shape[2]):
         thing = np.zeros((symInput.shape[3],symInput.shape[4]))
         for j in range(symInput.shape[0]):
             for k in range(symInput.shape[1]):
                 thing = np.add(thing, symInput[j,k,i])
         plt.figure()
-        plt.imshow(thing)
+        plt.imshow(normalize_to_255(np.multiply(thing, inputImage[:,:,0])))
+        plt.title("Sym input at node %d"%i)
         plt.show()
         
 def inspect_intermediate_output(temp):
@@ -593,6 +595,13 @@ def normalize_to_255(x):
     norm = np.multiply(np.array([(i - minimum) / (maximum - minimum) for i in temp]), 255)
     '''for i in range (len(temp)):
         temp[i] = temp[i]/maximum * 255'''
+    return norm.reshape(x.shape)
+    
+def normalize_to_1(x):
+    temp = x.flatten()
+    maximum = np.amax(temp)
+    minimum = np.amin(temp)
+    norm = np.multiply(np.array([(i - minimum) / (maximum - minimum) for i in temp]), 1)
     return norm.reshape(x.shape)
     
 def do_all_layers(inputNumber, padding, stride):
@@ -708,16 +717,17 @@ def do_all_layers_keras(inputNumber):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
             temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            #inspect_sym_input(inputMatrix[inputNumber])
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
-    #Coeffs, abs(coeffs), coeffs*input
+    #Coeffs, coeffs*input
     plt.figure()
     plt.imshow(inputMatrix[inputNumber][:,:,0])
     plt.figure()
     plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
     plt.savefig('./result_images/mnist_deep/mnist_deep_sym_coeffs_%d' % inputNumber)
     plt.figure()
-    plt.imshow(normalize_to_255(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
+    plt.imshow(normalize_to_255(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0])))
     plt.savefig('./result_images/mnist_deep/mnist_deep_sym_coeffs_%d_mult_input'%inputNumber)
     plt.close()
     #plt.show()
@@ -883,13 +893,14 @@ def manhattan_distance(image0, image1):
     
 def euclidean_distance(x, y):
     total = 0
-    for i in range(x.shape[0]):
-        for j in range(x.shape[0]):
-            total += (x[i,j] - y[i,j]) ** 2
+    x_flat = x.flatten()
+    y_flat = y.flatten()
+    for i in range(len(x_flat)):
+        total += (x_flat[i] - y_flat[i]) ** 2
     return np.sqrt(total)
 
 def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1, ckpoint='./tf_models'):
-    #read_weights_from_saved_tf_model(metaFile)
+    read_weights_from_saved_tf_model(metaFile)
     read_inputs_from_file(inputsFile, 28, 28, False)
     
     inputImage = None
@@ -905,31 +916,35 @@ def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1,
     closestImageIndex = None
     minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
     
-    #graph = tf.Graph()
+    graph = tf.Graph()
     with tf.Session() as sess:
         imported_graph = tf.train.import_meta_graph(metaFile)
         imported_graph.restore(sess, tf.train.latest_checkpoint(ckpoint))
         graph = tf.get_default_graph()
-        x = tf.placeholder(tf.float32, shape=[None, 784])
-        kp = tf.placeholder(tf.float32)
+        
+        x = graph.get_tensor_by_name("import/x:0")
+        keep_prob = graph.get_tensor_by_name("import/keep_prob:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        im_data = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], keep_prob: 1.0}
+        input_result = gradients.eval(feed_dict=feed_dict)
+        #print input_result
         for i in range(len(inputMatrix)):
             if labelMatrix[i] == correctLabel:
                 continue
-            im_data = inputMatrix[i][:,:,0]
+            im_data = normalize_to_1(inputMatrix[i][:,:,0])
             data = np.ndarray.flatten(im_data)
-            feed_dict = {x:[data], kp: 1.0}
-            gradients = graph.get_tensor_by_name("import/gradients:0")
-            #image_result = sess.run('import/gradients:0', feed_dict={x:[data], kp:1.0})
-            image_result = gradients.eval(feed_dict)
-            im_data = np.array(inputImage, dtype=np.float32)
-            data = np.ndarray.flatten(im_data)
-            feed_dict = {x:[data], keep_prob: 1.0}
-            input_result = gradients.eval(feed_dict=feed_dict)
+            feed_dict = {x:[data], keep_prob:1.0}
+            image_result = gradients.eval(feed_dict=feed_dict)
+            #print image_result
             distance = euclidean_distance(input_result, image_result)
             #distance = manhattan_distance(inputImage, inputMatrix[i])
             if distance < minDistance:
                 minDistance = distance
                 closestImageIndex = i
+            if distance == minDistance:
+                print "This image has the same distance as our current closest"
     print "Our closest image is a", labelMatrix[closestImageIndex]
     print "It has a distance of", minDistance
     print "Closest image index:", closestImageIndex
@@ -941,7 +956,7 @@ def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1,
     plt.savefig('./result_images/Differential_attributions/%d\'s_closest_image' % correctLabel) # Just for reference
     plt.close()
     
-    read_weights_from_saved_tf_model(metaFile)
+    #read_weights_from_saved_tf_model(metaFile)
     
     init_symInput(inputImage.shape[0],inputImage.shape[1])
     inputResult = do_all_layers_keras_for_image(inputImage)
@@ -1111,8 +1126,8 @@ def sufficient_distance_experiment(inputFile, metaFile, inputIndex=-1):
     coeffDistances[correctLabel] = -1
     print coeffDistances
     
-def get_percentage_same_ranks(igFileNum, experimentFile):
-    with open("./result_images/gradient_test/gradient_test_ranks_%d.txt" % igFileNum) as igF:
+def get_percentage_same_ranks(gradientsFile, experimentFile):
+    with open(gradientsFile) as igF:
         with open(experimentFile) as expF:
             gradientLines = igF.readlines()
             gradientRanks = np.arange(0)
@@ -1122,9 +1137,9 @@ def get_percentage_same_ranks(igFileNum, experimentFile):
             experimentRanks = np.arange(0)
             for l in range(len(experimentLines)):
                 experimentRanks = np.append(experimentRanks, [int(stringIn) for stringIn in experimentLines[l].split('\t')[:-1]])
-            sameRanks = compare_pixel_ranks(gradientRanks, experimentRanks, 0.05)
+            sameRanks = compare_pixel_ranks(gradientRanks, experimentRanks, 0.04)
             print float(sameRanks)/len(experimentRanks)*100
-            return sameRanks/len(experimentRanks)
+            return float(sameRanks)/len(experimentRanks)*100
 
 
 weightsFile = "./mnist_3A_layer.txt"
@@ -1135,26 +1150,30 @@ modelFile = "./model.json"
 metaFile = "./tf_models/mnist.meta"
 altMetaFile = './tf_models/gradients_testing_20000.meta'
 noDropoutMetaFile = "./tf_models/mnist_no_dropout.meta"
+noPoolingMetaFile = "./tf_models/mnist_no_pooling.meta"
+reluMetaFile = "./tf_models_relu/mnist_relu_network.meta"
+gradientsTestingMetaFile = './tf.models/gradients_testing.meta'
 checkpoint = "./tf_models"
-integratedGradientsRankFileNumber = 9
+reluCheckpoint = "./tf_models_relu"
+gradientRanksFile = "./result_images/gradient_test/gradient_test_ranks_9.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_9.txt"
-inputIndex = 2135
+inputIndex = 9
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
 exampleInputMatrix = np.multiply(255, inputMatrix)
 #exampleInputMatrix = inputMatrix
 
 #do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
-find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=9, ckpoint=checkpoint)
+find_closest_input_with_different_label(inputsFile, metaFile, inputIndex, ckpoint=checkpoint)
 #random_distances_experiment(inputsFile, metaFile, inputIndex=0)
 #sufficient_distance_experiment(inputsFile, metaFile, inputIndex=9)
-#get_percentage_same_ranks(integratedGradientsRankFileNumber, experimentRanksFile)
+get_percentage_same_ranks(gradientRanksFile, experimentRanksFile)
 
 #read_weights_from_h5_file(h5File)
 #parse_architecture_and_hyperparams(modelFile)
 
 #init(exampleInputsFile, weightsFile, 28, 28, True)
 #do_all_layers(inputIndex, 0, 1)
-#read_weights_from_saved_tf_model(metaFile)
-#init(inputsFile, weightsFile, 28, 28, True)
+#read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
+#init(exampleInputsFile, weightsFile, 28, 28, True)
 #kerasResult = do_all_layers_keras(inputIndex)
