@@ -383,6 +383,20 @@ def write_pixel_ranks_to_file(x, filename):
             for j in range(x.shape[1]):
                 f.write("%d\t" % ranks[i,j])
             f.write("\n")
+            
+def write_image_to_file(x, filename):
+    with open(filename, "w") as f:
+        for i in range(x.shape[0]):
+            for j in range(x.shape[1]):
+                f.write("%f\t" % x[i,j])
+            f.write("\n")
+            
+def write_image_to_file_scientific(x, filename):
+    with open(filename, "w") as f:
+        for i in range(x.shape[0]):
+            for j in range(x.shape[1]):
+                f.write("%E\t" % x[i,j])
+            f.write("\n")
     
 def normalize_to_255(x):
     temp = x.flatten()
@@ -545,28 +559,28 @@ def tf_testing_4():
             result1 = base_result.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result1))
-            plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_%d'%i)
-            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_pre_softmax_ranks_%d.txt' % i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_pre_softmax_%d'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/gradient_test_pre_softmax_ranks_%d.txt' % i)
             result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result2))
-            plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_mult_input_%d'%i)
-            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_pre_softmax_mult_input_%d'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
             
             base_result = gradients.eval(feed_dict)
             #result1 = get_top_pixels(base_result, 0.2)
             result1 = base_result.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result1))
-            plt.savefig('./result_images/gradient_test/gradient_test_%d'%i)
-            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_ranks_%d.txt'%i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_%d'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/gradient_test_ranks_%d.txt'%i)
             result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result2))
-            plt.savefig('./result_images/gradient_test/gradient_test_mult_input_%d'%i)
-            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_mult_input_ranks_%d.txt'%i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_mult_input_%d'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/gradient_test_mult_input_ranks_%d.txt'%i)
             plt.close()
             
             result = y_conv.eval(feed_dict)
@@ -594,7 +608,7 @@ def tf_testing_4():
             print('IG Attribution:')
             print(result)
             plt.imshow(normalize_to_255(result.reshape((28,28))))
-            plt.savefig('./result_images/gradient_test/integrated_gradients/integrated_gradients_%d' % i)
+            plt.savefig('./result_images/gradient_attributions/integrated_gradients/integrated_gradients_%d' % i)
         #plt.show()
         #print result.shape
         #print "Gradients:"
@@ -731,28 +745,28 @@ def tf_testing_2():
             result1 = base_result.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result1))
-            plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_%d'%i)
-            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_pre_softmax_ranks_%d.txt' % i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_pre_softmax_%d'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/gradient_test_pre_softmax_ranks_%d.txt' % i)
             result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result2))
-            plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_mult_input_%d'%i)
-            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_pre_softmax_mult_input_%d'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
             
             base_result = gradients.eval(feed_dict)
             #result1 = get_top_pixels(base_result, 0.2)
             result1 = base_result.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result1))
-            plt.savefig('./result_images/gradient_test/gradient_test_%d'%i)
-            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_ranks_%d.txt'%i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_%d'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/gradient_test_ranks_%d.txt'%i)
             result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result2))
-            plt.savefig('./result_images/gradient_test/gradient_test_mult_input_%d'%i)
-            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_mult_input_ranks_%d.txt'%i)
+            plt.savefig('./result_images/gradient_attributions/gradient_test_mult_input_%d'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/gradient_test_mult_input_ranks_%d.txt'%i)
             plt.close()
             
             result = y_conv.eval(feed_dict)
@@ -768,19 +782,21 @@ def tf_testing_2():
             print('Predicted Label:')
             print(result1.eval())
 
-            '''result = prediction2.eval(feed_dict)
+            result = prediction2.eval(feed_dict)
             print('IG Prediction:')
             print(result)
 
             result = prediction2.eval(feed_dict)[:,result1.eval()]
             print('IG Prediction Label:')
-            print(result)'''
+            print(result)
 
             result = (explanations[result1.eval()]).eval(feed_dict)
             #print('IG Attribution:')
             #print(result)
             plt.imshow(normalize_to_255(result.reshape((28,28))))
-            plt.savefig('./result_images/gradient_test/integrated_gradients/integrated_gradients_%d' % i)
+            plt.savefig('./result_images/integrated_gradients/mnist_deep/integrated_gradients_%d' % i)
+            write_image_to_file(result.reshape((28,28)), './result_images/integrated_gradients/mnist_deep/integrated_gradients_%d.txt' % i)
+            write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/mnist_deep/Pixel_ranks/integrated_gradients_ranks_%d.txt' % i)
         #plt.show()
         #print result.shape
         #print "Gradients:"
@@ -788,37 +804,69 @@ def tf_testing_2():
         
 def tf_relu_network():
     mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
-    x = tf.placeholder(tf.float32, shape=[None, 784])
+    x = tf.identity(tf.placeholder(tf.float32, shape=[None, 784]), name="import/x")
+    inter, stepsize, ref = ig.linear_inpterpolation(x, num_steps=50)
     y_ = tf.placeholder(tf.float32, shape=[None, 10])
     
     W_conv1 = weight_variable([784, 10])
     b_conv1 = bias_variable([10])
     x_image = tf.reshape(x, [-1, 784])
+    x_image_inter = tf.reshape(inter, [-1, 784])
     
     h_conv1 = tf.nn.relu(tf.matmul(x_image, W_conv1) + b_conv1)
+    h_conv1_inter = tf.identity(tf.nn.relu(tf.matmul(x_image_inter, W_conv1) + b_conv1), name="import/h_conv1_inter")
     
     W_conv2 = weight_variable([10, 10])
     b_conv2 = bias_variable([10])
     
     h_conv2 = tf.nn.relu(tf.matmul(h_conv1, W_conv2) + b_conv2)
+    h_conv2_inter = tf.identity(tf.nn.relu(tf.matmul(h_conv1_inter, W_conv2) + b_conv2), name="import/h_conv2_inter")
     
     W_conv3 = weight_variable([10, 10])
     b_conv3 = bias_variable([10])
     
     h_conv3 = tf.nn.relu(tf.matmul(h_conv2, W_conv3) + b_conv3)
+    h_conv3_inter = tf.identity(tf.nn.relu(tf.matmul(h_conv2_inter, W_conv3) + b_conv3), name="import/h_conv3_inter")
     
     W_conv4 = weight_variable([10, 10])
     b_conv4 = bias_variable([10])
     
     y_conv = tf.matmul(h_conv3, W_conv4) + b_conv4
+    y_conv_inter = tf.identity(tf.matmul(h_conv3_inter, W_conv4) + b_conv4, name="import/y_conv_inter")
+    
+    prediction = tf.identity(tf.nn.softmax(y_conv), name="import/prediction")
+    prediction2 = tf.identity(tf.nn.softmax(y_conv_inter), name="import/prediction2")
+    
+    explanations = []
+    exp0 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 0], num_steps=50), name="import/exp0")
+    explanations.append(exp0)
+    exp1 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 1], num_steps=50), name="import/exp1")
+    explanations.append(exp1)
+    exp2 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 2], num_steps=50), name="import/exp2")
+    explanations.append(exp2)
+    exp3 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 3], num_steps=50), name="import/exp3")
+    explanations.append(exp3)
+    exp4 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 4], num_steps=50), name="import/exp4")
+    explanations.append(exp4)
+    exp5 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 5], num_steps=50), name="import/exp5")
+    explanations.append(exp5)
+    exp6 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 6], num_steps=50), name="import/exp6")
+    explanations.append(exp6)
+    exp7 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 7], num_steps=50), name="import/exp7")
+    explanations.append(exp7)
+    exp8 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 8], num_steps=50), name="import/exp8")
+    explanations.append(exp8)
+    exp9 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 9], num_steps=50), name="import/exp9")
+    explanations.append(exp9)
+    explantions = tf.identity(explanations, name="import/explanations")
     
     cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
     correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
     
-    gradients_pre_softmax = tf.gradients(tf.reduce_max(y_conv), x)
+    gradients_pre_softmax = tf.identity(tf.gradients(tf.reduce_max(y_conv), x), name="import/gradients_pre_softmax")
     gradients_pre_softmax = tf.Print(gradients_pre_softmax, [gradients_pre_softmax], message="Gradients pre softmax:\n")
-    gradients = tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x)
+    gradients = tf.identity(tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x), name="import/gradients")
     gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
     
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
@@ -857,31 +905,68 @@ def tf_relu_network():
             result1 = result1.reshape(28, 28)
             plt.figure()
             plt.imshow(result1)
-            plt.savefig('./result_images/gradient_test/relu_pre_softmax_%d'%i)
+            plt.savefig('./result_images/gradient_attributions/tf_relu_network/gradients/relu_pre_softmax_%d'%i)
+            write_image_to_file(base_result.reshape((28,28)), './result_images/gradient_attributions/tf_relu_network/gradients/relu_pre_softmax_%d.txt'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/tf_relu_network/gradients/Pixel_ranks/relu_pre_softmax_ranks_%d.txt'%i)
             result2 = normalize_to_255(np.multiply(base_result, data))
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(result2)
-            plt.savefig('./result_images/gradient_test/relu_pre_softmax_mult_input_%d'%i)
+            plt.savefig('./result_images/gradient_attributions/tf_relu_network/gradients_times_input/relu_pre_softmax_mult_input_%d'%i)
+            write_image_to_file(np.multiply(base_result, data).reshape((28,28)), './result_images/gradient_attributions/tf_relu_network/gradients_times_input/relu_pre_softmax_mult_input_%d.txt'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/tf_relu_network/gradients_times_input/Pixel_ranks/relu_pre_softmax_mult_input_ranks_%d.txt'%i)
             
             base_result = gradients.eval(feed_dict)
             result1 = normalize_to_255(base_result)
             result1 = result1.reshape(28, 28)
             plt.figure()
             plt.imshow(result1)
-            plt.savefig('./result_images/gradient_test/relu_%d'%i)
+            plt.savefig('./result_images/gradient_attributions/tf_relu_network/gradients/relu_%d'%i)
+            write_image_to_file(base_result.reshape(28,28), './result_images/gradient_attributions/tf_relu_network/gradients/relu_%d.txt'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/tf_relu_network/gradients/Pixel_ranks/relu_ranks_%d.txt'%i)
             result2 = normalize_to_255(np.multiply(base_result, data))
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(result2)
-            plt.savefig('./result_images/gradient_test/relu_mult_input_%d'%i)
+            plt.savefig('./result_images/gradient_attributions/tf_relu_network/gradients_times_input/relu_mult_input_%d'%i)
+            write_image_to_file(np.multiply(base_result, data).reshape(28,28), './result_images/gradient_attributions/tf_relu_network/gradients_times_input/relu_mult_input_%d.txt'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/tf_relu_network/gradients_times_input/Pixel_ranks/relu_mult_input_ranks_%d.txt'%i)
             plt.close()
+            
+            result = y_conv.eval(feed_dict)
+            print('Original output:')
+            print(str(result))
+            print(result)
+
+            result = prediction.eval(feed_dict)[0]
+            print('Prediction:')
+            print(result)
+
+            result1 = tf.argmax((prediction.eval(feed_dict)[0]),0)
+            print('Predicted Label:')
+            print(result1.eval())
+
+            result = prediction2.eval(feed_dict)
+            print('IG Prediction:')
+            print(result)
+
+            result = prediction2.eval(feed_dict)[:,result1.eval()]
+            print('IG Prediction Label:')
+            print(result)
+
+            result = (explanations[result1.eval()]).eval(feed_dict)
+            print('IG Attribution:')
+            print(result)
+            plt.imshow(normalize_to_255(result.reshape((28,28))))
+            plt.savefig('./result_images/integrated_gradients/tf_relu_network/integrated_gradients_%d'%i)
+            write_image_to_file(result.reshape(28,28), './result_images/integrated_gradients/tf_relu_network/integrated_gradients_%d.txt'%i)
+            write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/tf_relu_network/Pixel_ranks/integrated_gradients_ranks_%d.txt'%i)
     
 def tf_testing_3():
     graph = tf.Graph()
     with tf.Session() as sess:
-        imported_graph = tf.train.import_meta_graph('tf_models/gradients_testing.meta')
-        #imported_graph = tf.train.import_meta_graph('tf_models/mnist.meta')
+        #imported_graph = tf.train.import_meta_graph('tf_models/gradients_testing.meta')
+        imported_graph = tf.train.import_meta_graph('tf_models/mnist.meta')
         imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models'))
         graph = tf.get_default_graph()
         convLayer = 0
@@ -892,6 +977,9 @@ def tf_testing_3():
         keep_prob = graph.get_tensor_by_name("import/keep_prob:0")
         gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
         gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
         f = open("./example_10.txt", 'r')
         lines = f.readlines()
         
@@ -911,29 +999,53 @@ def tf_testing_3():
             result1 = base_result.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result1))
-            plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_%d'%i)
-            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_pre_softmax_ranks_%d.txt' % i)
+            plt.savefig('./result_images/gradient_attributions/mnist_deep/gradients/gradient_test_pre_softmax_%d'%i)
+            write_image_to_file(result1, './result_images/gradient_attributions/mnist_deep/gradients/gradient_test_pre_softmax_%d.txt'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/mnist_deep/gradients/Pixel_ranks/gradient_test_pre_softmax_ranks_%d.txt' % i)
             result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result2))
-            plt.savefig('./result_images/gradient_test/gradient_test_pre_softmax_mult_input_%d'%i)
-            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
+            plt.savefig('./result_images/gradient_attributions/mnist_deep/gradients_times_input/gradient_test_pre_softmax_mult_input_%d'%i)
+            write_image_to_file(result2, './result_images/gradient_attributions/mnist_deep/gradients_times_input/gradient_test_pre_softmax_mult_input_%d.txt'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/mnist_deep/gradients_times_input/Pixel_ranks/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
             
             base_result = gradients.eval(feed_dict)
             #result1 = get_top_pixels(base_result, 0.2)
             result1 = base_result.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result1))
-            plt.savefig('./result_images/gradient_test/gradient_test_%d'%i)
-            write_pixel_ranks_to_file(result1, './result_images/gradient_test/gradient_test_ranks_%d.txt'%i)
+            plt.savefig('./result_images/gradient_attributions/mnist_deep/gradients/gradient_test_%d'%i)
+            write_image_to_file_scientific(result1, './result_images/gradient_attributions/mnist_deep/gradients/gradient_test_%d.txt'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/mnist_deep/gradients/Pixel_ranks/gradient_test_ranks_%d.txt'%i)
             result2 = np.multiply(base_result, data)
             result2 = result2.reshape(28, 28)
             plt.figure()
             plt.imshow(normalize_to_255(result2))
-            plt.savefig('./result_images/gradient_test/gradient_test_mult_input_%d'%i)
-            write_pixel_ranks_to_file(result2, './result_images/gradient_test/gradient_test_mult_input_ranks_%d.txt'%i)
+            plt.savefig('./result_images/gradient_attributions/mnist_deep/gradients_times_input/gradient_test_mult_input_%d'%i)
+            write_image_to_file_scientific(result2, './result_images/gradient_attributions/mnist_deep/gradients_times_input/gradient_test_mult_input_%d.txt'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/mnist_deep/gradients_times_input/Pixel_ranks/gradient_test_mult_input_ranks_%d.txt'%i)
             plt.close()
+            
+            result1 = tf.argmax((prediction.eval(feed_dict)[0]),0)
+            print('Predicted Label:')
+            print(result1.eval())
+
+            result = prediction2.eval(feed_dict)
+            print('IG Prediction:')
+            print(result)
+
+            result = prediction2.eval(feed_dict)[:,result1.eval()]
+            print('IG Prediction Label:')
+            print(result)
+
+            result = (explanations[result1.eval()]).eval(feed_dict)
+            #print('IG Attribution:')
+            #print(result)
+            plt.imshow(normalize_to_255(result.reshape((28,28))))
+            plt.savefig('./result_images/integrated_gradients/mnist_deep/integrated_gradients_%d' % i)
+            write_image_to_file(result.reshape((28,28)), './result_images/integrated_gradients/mnist_deep/integrated_gradients_%d.txt' % i)
+            write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/mnist_deep/Pixel_ranks/integrated_gradients_ranks_%d.txt' % i)
         '''thing = str.split(lines[0],',')
         thing = [float(a)+0.5 for a in thing]
         im_data = np.array(thing[1:], dtype=np.float32)
@@ -1004,9 +1116,9 @@ inputIndex = 9
 #plt.show()
 #do_all_layers(9, 1, 0)
 
-tf_testing_2()
+#tf_testing_2()
 #tf_testing_3()
-#tf_relu_network()
+tf_relu_network()
 #tf_testing_4()
     
 #pool_testing(2,2)
