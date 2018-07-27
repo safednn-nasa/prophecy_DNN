@@ -6,7 +6,12 @@ import h5py
 import json
 import time
 import tensorflow as tf
+import cPickle
+import sys
+import PIL.Image
 from random import randint
+from cStringIO import StringIO
+from IPython.display import  Image, display
 
 weightMatrix = None
 biasMatrix = None
@@ -45,6 +50,25 @@ def read_inputs_from_file(inputFile, height, width, plusPointFive=True):
                         inputMatrix[l][i][j] = k[count]
                     count += 1
             #inputMatrix[l] = np.transpose(k) #provides Nx1 output
+            
+def read_cifar_inputs(inputFile):
+    global inputMatrix, labelMatrix
+    fo = open(inputFile, 'rb')
+    pickle = cPickle.load(fo)
+    data = pickle["data"]
+    labels = pickle["labels"]
+    inputMatrix = np.empty(data.shape[0], dtype=list)
+    print data.shape[0], "examples"
+    labelMatrix = labels
+    for i in range(data.shape[0]):
+        #inputMatrix[i] = np.zeros((32, 32, 3),dtype=uint8) #We know the dimensions for cifar
+        inputMatrix[i] = data[i].astype("uint8").reshape(3,32,32).transpose([1,2,0])
+        '''count = 0
+        for l in range(3):
+            for j in range(32):
+                for k in range(32):
+                    inputMatrix[i][j, k, l] = data[i, count]
+                    count += 1'''
             
 '''Keras models are stored in h5 files, which we can read with this function. It populates weight and bias matrices for both convolutional and fully-connected layers. It doesn't get the strides, zero-pads, architecture, or dimensions of the pooling layers. I don't know how to actively retrieve those from the .h5 file, but if we turn it into a tensorflow model.json (using tensorflowjs), they're in there; need to finish writing the function below for that. Anyway, convWeightMatrix is L entries, where L is the number of convolutional layers, each of shape n_filters x d_filter x h_filter x w_filter (unfortunately the come h x w x d x n, had to tweak that). convBiasMatrix is L entries with as many biases as the respective layer has filters, natch. denseBiasMatrix is much the same just with length M, where M is the number of FC layers, and denseWeightMatrix's M entries are input_length x output_length typical FC weight matrices, they'll need the reshape_fc_weight_matrix treatment. Alternatively, we could implement a flattening function to turn the output of the last convolutional layer into a single-dimensional output.'''
 def read_weights_from_h5_file(h5File):
@@ -380,6 +404,30 @@ def concolic_pool_layer_forward(X, size, stride = 1):
     symInput = symOut
     print ""
     return out
+    
+def concolic_pool_layer_forward_3d(X, size, stride = 1):
+    global symInput
+    print "Beginning 3D concolic pool layer"
+    h, w, d = X.shape
+    h_out = (h-size)/stride + 1
+    w_out = (w-size)/stride + 1
+    out = np.zeros((h_out, w_out, d))
+    symOut = np.zeros((h_out, w_out, d, symInput.shape[3], symInput.shape[4], 3))
+    for i in range(h_out):
+        for j in range(w_out):
+            for k in range(d):
+                rowIndex = i*stride
+                colIndex = j*stride
+                #print X[rowIndex:rowIndex+size,colIndex:colIndex+size,k], X[owIndex:rowIndex+size,j:j+size,k].max()
+                max_idx = np.argmax(X[rowIndex:rowIndex+size,colIndex:colIndex+size,k])
+                max_row = max_idx/size
+                max_col = max_idx % size
+                #print symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col].shape
+                symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
+                out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
+    symInput = symOut
+    print ""
+    return out
 
 '''Each node in the layer must have an array with a list input.size of coefficients. 
 If our input is X x Y, every point on a given internal/output layer needs an X x Y map of coefficients.
@@ -423,6 +471,48 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
     print ""
     return out
     
+def sym_conv_layer_forward_3d(input, filters, b, stride=1, padding=1, keras=False):
+    print "Beginning sym conv layer"
+    h_prev, w_prev, d_prev, h_x, w_x, d_x = input.shape
+    if(keras):
+        h_filter, w_filter, d_filter, n_filters = filters.shape #d_x should equal d_filter
+    else:
+        n_filters, d_filter, h_filter, w_filter = filters.shape
+    if padding == -1:
+        padding = (h_filter - 1)/2
+    h_out = (h_prev - h_filter + 2 * padding) / stride + 1
+    w_out = (w_prev - w_filter + 2 * padding) / stride + 1
+    input_padded = np.pad(input,((padding, padding),(padding, padding),(0,0),(0,0),(0,0),(0,0)),mode='constant')
+    #print "Padded input shape:", input_padded.shape, "filters shape:", filters.shape
+    out = np.zeros((h_out, w_out, n_filters, h_x, w_x, d_x))
+    for i in range(n_filters):
+        #print "Applying sym filter", i
+        for j in range(h_out):
+            for k in range(w_out):
+                rowIndex = j*stride
+                colIndex = k*stride
+                temp = np.zeros((h_x, w_x, d_x))
+                for l in range(d_prev):
+                    #print filters[i,l].shape
+                    #print input_padded[j:j+h_filter,k:k+w_filter,l].shape
+                    #temp = np.zeros((h_x, w_x))
+                    for m in range(h_filter):
+                        for n in range(w_filter):
+                            if(keras):
+                                scaledMatrix = np.multiply(filters[m,n,l,i], input_padded[rowIndex+m,colIndex+n,l])
+                            else:
+                                scaledMatrix = np.multiply(filters[i,l,m,n], input_padded[rowIndex+m,colIndex+n,l])
+                            temp = np.add(temp, scaledMatrix)
+                out[j,k,i] = temp
+                #out[j,k,i] = np.add(out[j,k,i], b[i])
+        #plt.figure()
+        #plt.imshow(np.sum(np.sum(np.sum(out[:,:,i], axis=0), axis=0),axis=2))
+        #plt.show()
+    
+    print "Output shape:", out.shape
+    print ""
+    return out
+    
 '''This was my first attempt at making a symbolic convolutional forward pass, based on the original implementation of conv_forward. Keeping it around for now just in case.'''
 def unused_sym_conv(input, filter, b, stride=1, padding=1):
     #out = np.dot(input, filter)
@@ -452,6 +542,14 @@ def init_symInput(inputHeight, inputWidth):
     for i in range(inputHeight):
         for j in range(inputWidth):
             symInput[i,j,0,i,j] = 1
+            
+def init_3d_symInput(inputHeight, inputWidth):
+    global symInput
+    symInput = np.zeros((inputHeight, inputWidth, 3, inputHeight, inputWidth, 3))
+    for i in range(inputHeight):
+        for j in range(inputWidth):
+            for k in range(3):
+                symInput[i,j,k,i,j,k] = 1
 
 def init(inputFile, weightFile, inputHeight, inputWidth, plusPointFive=True):
     global symInput
@@ -471,7 +569,7 @@ def classify(processedArray):
     print "MaxIndex:",maxIndex
     
 def classify_ineff(processedArray):
-    maxValue = 0
+    maxValue = -sys.maxint -1
     maxIndex = -1
     for i in range(processedArray.shape[2]):
         print "Class",i,"confidence",processedArray[0,0,i]
@@ -519,6 +617,18 @@ def inspect_sym_input(inputImage):
         plt.imshow(normalize_to_255(np.multiply(thing, inputImage[:,:,0])))
         plt.title("Sym input at node %d"%i)
         plt.show()
+        
+def inspect_3d_sym_input():
+    for i in range(symInput.shape[2]):
+        thing = np.zeros((symInput.shape[3],symInput.shape[4],symInput.shape[5]))
+        for j in range(symInput.shape[0]):
+            for k in range(symInput.shape[1]):
+                thing = np.add(thing, symInput[j,k,i])
+        for l in range(symInput.shape[5]):
+            plt.figure()
+            plt.imshow(thing[:,:,l])
+            plt.title("Sym input at node %d, color %d" % (i, l))
+            plt.show()
         
 def inspect_intermediate_output(temp):
     for i in range (temp.shape[2]):
@@ -582,17 +692,33 @@ def write_pixel_ranks_to_file(x, filename):
     ranks = np.empty_like(sortIndices)
     ranks[sortIndices] = np.arange(len(temp))
     ranks = ranks.reshape(x.shape)
-    with open(filename, "w") as f:
+    write_image_to_file(ranks, filename)
+    '''with open(filename, "w") as f:
         for i in range(x.shape[0]):
             for j in range(x.shape[1]):
                 f.write("%d\t" % ranks[i,j])
-            f.write("\n")
+            f.write("\n")'''
             
 def write_image_to_file(x, filename):
     with open(filename, "w") as f:
+        if len(x.shape) == 2:
+            for i in range(x.shape[0]):
+                for j in range(x.shape[1]):
+                    f.write("%f\t" % x[i,j])
+                f.write("\n")
+        else:
+            for k in range(x.shape[2]):
+                for i in range(x.shape[0]):
+                    for j in range(x.shape[1]):
+                        f.write("%f\t" % x[i,j,k])
+                    f.write("\n")
+                f.write("\n")
+            
+def write_image_to_file_scientific(x, filename):
+    with open(filename, "w") as f:
         for i in range(x.shape[0]):
             for j in range(x.shape[1]):
-                f.write("%d\t" % x[i,j])
+                f.write("%E\t" % x[i,j])
             f.write("\n")
     
 def normalize_to_255(x):
@@ -612,11 +738,41 @@ def normalize_to_1(x):
     return norm.reshape(x.shape)
     
 def gray_scale(img):
-  '''Converts the provided RGB image to gray scale.
-  '''
-  img = np.average(img, axis=2)
-  return np.transpose([img, img, img], axes=[1,2,0])
+    '''Converts the provided RGB image to gray scale.
+    '''
+    img = np.average(img, axis=2)
+    return np.transpose([img, img, img], axes=[1,2,0])
+  
+def pil_img(a):
+    '''Returns a PIL image created from the provided RGB array.
+    '''
+    a = np.uint8(a)
+    return PIL.Image.fromarray(a)
+  
+def show_img(img, fmt='jpeg'):
+    img.show()
+    '''Displays the provided PIL image
+    '''
+    '''f = StringIO()
+    img.save(f, fmt)
+    display(Image(data=f.getvalue()))'''
+  
+def visualize_attrs_windowing(img, attrs, ptile=99):
+    '''Visaualizes the provided attributions by first aggregating them
+    along the color channel to obtain per-pixel attributions and then
+    scaling the intensities of the pixels in the original image in
+    proportion to absolute value of these attributions.
+
+    The provided image and attributions must of shape (224, 224, 3).
+    '''
+    attrs = gray_scale(attrs)
+    attrs = abs(attrs)
+    attrs = np.clip(attrs/np.percentile(attrs, ptile), 0,1)
+    vis = img*attrs
+    show_img(pil_img(vis))
+    return pil_img(vis)
     
+'''This function is used pretty much exclusively for the relu network; do_all_layers_keras was developed for the more general case. Both depend on using the right initialization calls to properly populate the right global variables. This one has the downside of actually reshaping the weightMatrix, so it needs to be re-initialized every time you want to do another call.'''
 def do_all_layers(inputNumber, padding, stride):
     global weightMatrix, symInput
     temp = inputMatrix[inputNumber]
@@ -629,7 +785,8 @@ def do_all_layers(inputNumber, padding, stride):
         #weightMatrix[i] = reshape_fc_weight_matrix_keras(weightMatrix[i], temp.shape)
         #print "Shape of weight matrix:",weightMatrix[i].shape
         temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
-        temp = relu_layer_forward(temp)
+        if(i != len(weightMatrix)-1):
+            temp = relu_layer_forward(temp)
         symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
         #symInput = relu_layer_forward(symInput)
         #temp = pool_layer_forward_ineff(temp, 1)
@@ -689,7 +846,32 @@ def do_all_layers(inputNumber, padding, stride):
     write_pixel_ranks_to_file(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/relu_network/coefficients_times_input/Pixel_ranks/Converted_relu_network_sym_coeffs_times_in_ranks_%d.txt' % inputNumber)
     return maxIndex
     
-def do_all_layers_keras(inputNumber):
+def do_all_layers_for_image(squareImage, padding=0, stride=1):
+    global weightMatrix, symInput
+    temp = squareImage
+    print inputMatrix.shape, weightMatrix.shape
+    print "Input shape is", temp.shape
+    for i in range(len(weightMatrix)):
+        #print "Shape of weight matrix:",weightMatrix[i].shape
+        #If we're not doing an FC->Conv conversion, take out this next line
+        weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape)
+        #weightMatrix[i] = reshape_fc_weight_matrix_keras(weightMatrix[i], temp.shape)
+        #print "Shape of weight matrix:",weightMatrix[i].shape
+        temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        if(i != len(weightMatrix)-1):
+            temp = relu_layer_forward(temp)
+        symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
+        #symInput = relu_layer_forward(symInput)
+        #temp = pool_layer_forward_ineff(temp, 1)
+        temp = concolic_pool_layer_forward(temp, 1)
+        #print temp
+    print symInput.shape
+    #classify(temp)
+    #plt.imshow(inputMatrix[inputNumber][:,:,0])
+    maxIndex = classify_ineff(temp)
+    return maxIndex
+    
+def do_all_layers_keras(inputNumber, outDir):
     global symInput, convWeightMatrix, denseWeightMatrix
     temp = inputMatrix[inputNumber]
     convIndex = 0
@@ -741,51 +923,28 @@ def do_all_layers_keras(inputNumber):
     plt.imshow(inputMatrix[inputNumber][:,:,0])'''
     plt.figure()
     plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
-    plt.savefig('./result_images/coefficient_attributions/mnist_alex/coefficients/mnist_alex_sym_coeffs_%d' % inputNumber)
-    write_image_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/mnist_alex/coefficients/mnist_alex_sym_coeffs_%d.txt' % inputNumber)
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d' % (outDir, outDir, inputNumber))
+    write_image_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d.txt' % (outDir, outDir, inputNumber))
     plt.figure()
     plt.imshow(normalize_to_255(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0])))
-    plt.savefig('./result_images/coefficient_attributions/mnist_alex/coefficients_times_input/mnist_alex_sym_coeffs_%d_mult_input'%inputNumber)
-    write_image_to_file(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/mnist_alex/coefficients_times_input/mnist_alex_sym_coeffs_%d_mult_input.txt'%inputNumber)
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input'% (outDir, outDir, inputNumber))
+    write_image_to_file(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.txt'% (outDir, outDir, inputNumber))
     plt.close()
     plt.show()
-    
-    #Top 20% of the above
-    '''plt.figure()
-    plt.imshow(get_top_pixels(symInput[0,0,maxIndex], 0.2))
-    #plt.savefig('./result_images/mnist_deep/Top 20%% Images/mnist_deep_top_20%%_sym_coeffs_%d' % inputNumber)
-    plt.show()
-    plt.figure()
-    plt.imshow(get_top_pixels(abs(symInput[0,0,maxIndex]), 0.2))
-    #plt.savefig('./result_images/mnist_deep/Top 20%% Images/mnist_deep_top_20%%_abs_sym_coeffs_%d' % inputNumber)
-    plt.show()
-    plt.figure()
-    plt.imshow(get_top_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), 0.2))
-    #plt.savefig('./result_images/mnist_deep/Top 20%% Images/mnist_deep_top_20%%_sym_coeffs_times_in_%d'% inputNumber)
-    plt.show()'''
-    
-    #Above-average pixels of the above
-    '''plt.figure()
-    plt.imshow(get_above_average_pixels(symInput[0,0,maxIndex]))
-    plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_sym_coeffs_%d' % inputNumber)
-    plt.figure()
-    plt.imshow(get_above_average_pixels(abs(symInput[0,0,maxIndex])))
-    plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_abs_sym_coeffs_%d' % inputNumber)
-    plt.figure()
-    plt.imshow(get_above_average_pixels(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
-    plt.savefig('./result_images/mnist_deep/Above_average_images/mnist_deep_above_average_sym_coeffs_times_in_%d' % inputNumber)'''
     
     #Pixel ranks of the above
     plt.figure()
     plt.imshow(image_based_on_pixel_ranks(symInput[0,0,maxIndex]))
-    plt.savefig('./result_images/coefficient_attributions/mnist_alex/coefficients/Pixel_ranks/mnist_alex_ranked_sym_coeffs_%d' % inputNumber)
-    write_pixel_ranks_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/mnist_alex/coefficients/Pixel_ranks/mnist_alex_sym_coeffs_ranks_%d.txt' % inputNumber)
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients/Pixel_ranks/%s_ranked_sym_coeffs_%d' % (outDir, outDir, inputNumber))
+    write_pixel_ranks_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/%s/coefficients/Pixel_ranks/%s_sym_coeffs_ranks_%d.txt' % (outDir, outDir, inputNumber))
     plt.figure()
     plt.imshow(image_based_on_pixel_ranks(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
-    plt.savefig('./result_images/coefficient_attributions/mnist_alex/coefficients_times_input/Pixel_ranks/mnist_alex_ranked_sym_coeffs_times_in_%d' % inputNumber)
-    write_pixel_ranks_to_file(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/mnist_alex/coefficients_times_input/Pixel_ranks/mnist_alex_sym_coeffs_times_in_ranks_%d.txt' % inputNumber)
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/Pixel_ranks/%s_ranked_sym_coeffs_times_in_%d' % (outDir, outDir, inputNumber))
+    write_pixel_ranks_to_file(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/%s/coefficients_times_input/Pixel_ranks/%s_sym_coeffs_times_in_ranks_%d.txt' % (outDir, outDir, inputNumber))
     #plt.show()
     #inspect_sym_input()
+    if maxIndex != labelMatrix[inputNumber]:
+        print "Error, correct label is", labelMatrix[inputNumber]
     return maxIndex
     
 def do_all_layers_keras_for_image(squareImage):
@@ -800,8 +959,8 @@ def do_all_layers_keras_for_image(squareImage):
             '''if convIndex == 1:
                 continue'''
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
-            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
             #inspect_intermediate_output(temp)
             #inspect_sym_input()
@@ -833,6 +992,97 @@ def do_all_layers_keras_for_image(squareImage):
             symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp)
+    return maxIndex
+
+def do_all_layers_keras_3d(inputNumber, outDir):
+    global symInput, convWeightMatrix, denseWeightMatrix
+    temp = inputMatrix[inputNumber]
+    convIndex = 0
+    denseIndex = 0
+    poolIndex = 0
+    activationIndex = 0
+    for layerType in layerTypeList:
+        if layerType.lower().startswith("conv"):
+            '''if convIndex == 1:
+                continue'''
+            #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
+            # When using the keras file: padding of zero. When using mnist_deep: -1.
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            symInput = sym_conv_layer_forward_3d(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            convIndex = convIndex + 1
+            #inspect_intermediate_output(temp)
+            #inspect_3d_sym_input()
+        elif layerType.lower().startswith("activation"):
+            activationType = activationTypeList[activationIndex].lower()
+            if activationType == 'relu':
+                np.set_printoptions(threshold=np.nan)
+                temp = relu_layer_forward(temp)
+                '''for i in range(temp.shape[0]):
+                    for j in range(temp.shape[1]):
+                        print temp[i, j]'''
+                '''for i in range(temp.shape[2]):
+                    print temp[:, :, i]'''
+                #symInput = relu_layer_forward(symInput)
+            activationIndex = activationIndex + 1
+        elif layerType.lower().startswith("maxpool"):
+            #inspect_intermediate_output(temp)
+            #inspect_3d_sym_input()
+            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            temp = concolic_pool_layer_forward_3d(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            #inspect_intermediate_output(temp)
+            #inspect_3d_sym_input()
+            poolIndex = poolIndex + 1 
+        elif layerType.lower().startswith("flatten"):
+            pass
+        elif layerType.lower().startswith("dense"):
+            tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
+            temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            symInput = sym_conv_layer_forward_3d(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            #inspect_3d_sym_input()
+            denseIndex = denseIndex + 1
+    maxIndex = classify_ineff(temp);
+    #symResultImage = np.sum(symInput[0,0,maxIndex], axis=2)
+    symResultImage = symInput[0,0,maxIndex]
+    symTimesIn = np.zeros((32,32,3))
+    for i in range(3):
+        symTimesIn[:,:,i] = np.multiply(symInput[0,0,inputNumber,:,:,i], inputMatrix[inputNumber][:,:,i])
+        plt.figure()
+        plt.imshow(symInput[0,0,inputNumber,:,:,i])
+        plt.title("Coeffs, color number %d"%i)
+        plt.show()
+        plt.imshow(symTimesIn[:,:,i])
+        plt.title("coeffs*in, color number %d"%i)
+        plt.show()
+    #symTimesInImage = np.sum(symTimesIn, axis=2)
+    symTimesInImage = visualize_attrs_windowing(inputMatrix[inputNumber], symInput[0,0,maxIndex])
+    
+    #Coeffs, coeffs*input
+    '''plt.figure()
+    plt.imshow(inputMatrix[inputNumber][:,:,0])'''
+    plt.figure()
+    plt.imshow(np.sum(symResultImage, axis=2))
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d' % (outDir, outDir, inputNumber))
+    write_image_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d.txt' % (outDir, outDir, inputNumber))
+    '''plt.figure()
+    plt.imshow(normalize_to_255(symTimesInImage))
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input'% (outDir, outDir, inputNumber))
+    write_image_to_file(symTimesIn, './result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.txt'% (outDir, outDir, inputNumber))'''
+    symTimesInImage.save('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.png'% (outDir, outDir, inputNumber))
+    symTimesInImage.show()
+    
+    #Pixel ranks of the above
+    plt.figure()
+    plt.imshow(image_based_on_pixel_ranks(symResultImage))
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients/Pixel_ranks/%s_ranked_sym_coeffs_%d' % (outDir, outDir, inputNumber))
+    write_pixel_ranks_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/%s/coefficients/Pixel_ranks/%s_sym_coeffs_ranks_%d.txt' % (outDir, outDir, inputNumber))
+    '''plt.figure()
+    plt.imshow(image_based_on_pixel_ranks(symTimesInImage))
+    plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/Pixel_ranks/%s_ranked_sym_coeffs_times_in_%d' % (outDir, outDir, inputNumber))'''
+    write_pixel_ranks_to_file(symTimesIn, './result_images/coefficient_attributions/%s/coefficients_times_input/Pixel_ranks/%s_sym_coeffs_times_in_ranks_%d.txt' % (outDir, outDir, inputNumber))
+    #plt.show()
+    #inspect_sym_input()
+    if maxIndex != labelMatrix[inputNumber]:
+        print "Error, correct label is", labelMatrix[inputNumber]
     return maxIndex
     
 def do_experiment(inputsFile, weightsFile, metaFile, numberOfImages, outputFile):
@@ -904,9 +1154,10 @@ def do_experiment(inputsFile, weightsFile, metaFile, numberOfImages, outputFile)
 
 def manhattan_distance(image0, image1):
     total = 0
-    for i in range(image0.shape[0]):
-        for j in range(image0.shape[1]):
-            total += abs(image0[i,j] - image1[i,j])
+    image0flat = image0.flatten()
+    image1flat = image1.flatten()
+    for i in range(len(image0)):
+        total += abs(image0flat[i] - image1flat[i])
     return total
     
 def euclidean_distance(x, y):
@@ -918,6 +1169,7 @@ def euclidean_distance(x, y):
     return np.sqrt(total)
 
 def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1, ckpoint='./tf_models'):
+    '''Generates differential analyses, either on a random input chosen from inputsFile if inputIndex == -1, or on a file from exampleInputMatrix determined by inputIndex.'''
     read_weights_from_saved_tf_model(metaFile, ckpoint=ckpoint)
     read_inputs_from_file(inputsFile, 28, 28, False)
     
@@ -958,8 +1210,8 @@ def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1,
             feed_dict = {x:[data]} #tf_relu version
             image_result = gradients.eval(feed_dict=feed_dict)
             #print image_result
-            distance = euclidean_distance(input_result, image_result)
-            #distance = manhattan_distance(inputImage, inputMatrix[i])
+            distance = euclidean_distance(input_result, image_result) #compare gradients
+            #distance = manhattan_distance(inputImage, inputMatrix[i]) #compare @ input layer
             if distance < minDistance:
                 minDistance = distance
                 closestImageIndex = i
@@ -1166,40 +1418,723 @@ def get_percentage_same_ranks(gradientsFile, experimentFile):
             sameRanks = compare_pixel_ranks(gradientRanks, experimentRanks, 2)
             print float(sameRanks)/len(experimentRanks)*100, "%% match"
             return float(sameRanks)/len(experimentRanks)*100
+            
+def get_rank_distance_from_files(file1, file2):
+    with open(file1) as f1:
+        with open(file2) as f2:
+            f1Lines = f1.readlines()
+            f1Ranks = np.arange(0)
+            for l in range(len(f1Lines)):
+                f1Ranks = np.append(f1Ranks, [int(stringIn) for stringIn in f1Lines[l].split('\t')[:-1]])
+            f2Lines = f2.readlines()
+            f2Ranks = np.arange(0)
+            for l in range(len(f2Lines)):
+                f2Ranks = np.append(f2Ranks, [int(stringIn) for stringIn in f2Lines[l].split('\t')[:-1]])
+            distance = manhattan_distance(f1Ranks, f2Ranks)
+            return distance
 
+def generate_alex_net_mnist_gradients():
+    read_weights_from_h5_file('./mnist_complicated.h5')
+    parse_architecture_and_hyperparams("./model.json")
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        #imported_graph = tf.train.import_meta_graph('tf_models/gradients_testing.meta')
+        imported_graph = tf.train.import_meta_graph('tf_models_alex/mnist_alex.meta')
+        imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models_alex'))
+        graph = tf.get_default_graph()
+        convLayer = 0
+        denseLayer = 0
+        
+
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        W_fc1 = graph.get_tensor_by_name("import/W_fc1:0")
+        b_fc1 = graph.get_tensor_by_name("import/b_fc1:0")
+        W_fc2 = graph.get_tensor_by_name("import/W_fc2:0")
+        b_fc2 = graph.get_tensor_by_name("import/b_fc2:0")
+        W_fc3 = graph.get_tensor_by_name("import/W_fc3:0")
+        b_fc3 = graph.get_tensor_by_name("import/b_fc3:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        f = open("./example_10.txt", 'r')
+        lines = f.readlines()
+        
+        np.set_printoptions(threshold=np.nan)
+        f = open("./example_10.txt", 'r')
+        lines = f.readlines()
+        for i in range(10):
+            thing = str.split(lines[i],',')
+            thing = [float(a)+0.5 for a in thing]
+            #print len(thing)
+            im_data = np.array(thing[1:], dtype=np.float32)
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1], W_fc3: denseWeightMatrix[2], b_fc3: denseBiasMatrix[2]}
+            #result = h_conv1.eval(feed_dict)
+            base_result = gradients_pre_softmax.eval(feed_dict)
+            #result1 = get_top_pixels(base_result, 0.2)
+            result1 = base_result.reshape(28, 28)
+            plt.figure()
+            plt.imshow(normalize_to_255(result1))
+            plt.savefig('./result_images/gradient_attributions/mnist_alex/gradients/gradient_test_pre_softmax_%d'%i)
+            write_image_to_file(result1, './result_images/gradient_attributions/mnist_alex/gradients/gradient_test_pre_softmax_%d.txt'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/mnist_alex/gradients/Pixel_ranks/gradient_test_pre_softmax_ranks_%d.txt' % i)
+            result2 = np.multiply(base_result, data)
+            result2 = result2.reshape(28, 28)
+            plt.figure()
+            plt.imshow(normalize_to_255(result2))
+            plt.savefig('./result_images/gradient_attributions/mnist_alex/gradients_times_input/gradient_test_pre_softmax_mult_input_%d'%i)
+            write_image_to_file(result2, './result_images/gradient_attributions/mnist_alex/gradients_times_input/gradient_test_pre_softmax_mult_input_%d.txt'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/mnist_alex/gradients_times_input/Pixel_ranks/gradient_test_pre_softmax_mult_input_ranks_%d.txt' % i)
+            
+            base_result = gradients.eval(feed_dict)
+            #result1 = get_top_pixels(base_result, 0.2)
+            result1 = base_result.reshape(28, 28)
+            plt.figure()
+            plt.imshow(normalize_to_255(result1))
+            plt.savefig('./result_images/gradient_attributions/mnist_alex/gradients/gradient_test_%d'%i)
+            write_image_to_file_scientific(result1, './result_images/gradient_attributions/mnist_alex/gradients/gradient_test_%d.txt'%i)
+            write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/mnist_alex/gradients/Pixel_ranks/gradient_test_ranks_%d.txt'%i)
+            result2 = np.multiply(base_result, data)
+            result2 = result2.reshape(28, 28)
+            plt.figure()
+            plt.imshow(normalize_to_255(result2))
+            plt.savefig('./result_images/gradient_attributions/mnist_alex/gradients_times_input/gradient_test_mult_input_%d'%i)
+            write_image_to_file_scientific(result2, './result_images/gradient_attributions/mnist_alex/gradients_times_input/gradient_test_mult_input_%d.txt'%i)
+            write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/mnist_alex/gradients_times_input/Pixel_ranks/gradient_test_mult_input_ranks_%d.txt'%i)
+            plt.close()
+            
+            result1 = tf.argmax((prediction.eval(feed_dict)[0]),0)
+            print('Predicted Label:')
+            print(result1.eval())
+
+            result = prediction2.eval(feed_dict)
+            print('IG Prediction:')
+            print(result)
+
+            result = prediction2.eval(feed_dict)[:,result1.eval()]
+            print('IG Prediction Label:')
+            print(result)
+
+            result = (explanations[result1.eval()]).eval(feed_dict)
+            #print('IG Attribution:')
+            #print(result)
+            plt.imshow(normalize_to_255(result.reshape((28,28))))
+            plt.savefig('./result_images/integrated_gradients/mnist_alex/integrated_gradients_%d' % i)
+            write_image_to_file(result.reshape((28,28)), './result_images/integrated_gradients/mnist_alex/integrated_gradients_%d.txt' % i)
+            write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/mnist_alex/Pixel_ranks/integrated_gradients_ranks_%d.txt' % i)
+
+def generate_alex_net_cifar_gradients(inputIndex=-1):
+    read_cifar_inputs("./cifar-10-batches-py/test_batch")
+    read_weights_from_h5_file(cifarH5File)
+    parse_architecture_and_hyperparams(cifarModelFile)
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph('tf_models_cifar_alex/cifar_alex.meta')
+        imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models_cifar_alex'))
+        graph = tf.get_default_graph()
+        convLayer = 0
+        denseLayer = 0
+        
+
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        W_fc1 = graph.get_tensor_by_name("import/W_fc1:0")
+        b_fc1 = graph.get_tensor_by_name("import/b_fc1:0")
+        W_fc2 = graph.get_tensor_by_name("import/W_fc2:0")
+        b_fc2 = graph.get_tensor_by_name("import/b_fc2:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        
+        im_data = inputMatrix[inputIndex]
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
+        
+        base_result = gradients_pre_softmax.eval(feed_dict)
+        result1 = base_result.reshape(32, 32, 3)
+        plt.figure()
+        #resultImage = np.sum(inputMatrix[inputIndex], axis=2)
+        plt.imshow(inputMatrix[inputIndex])
+        plt.savefig('./cifar_images/cifar%d' % inputIndex)
+        #plt.show()
+        plt.figure()
+        plt.imshow(result1)
+        plt.savefig('./result_images/gradient_attributions/cifar_alex/gradients/cifar_alex_gradients_pre_softmax_%d' % inputIndex)
+        write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/cifar_alex/gradients/Pixel_ranks/cifar_alex_gradients_pre_softmax_ranks_%d.txt' % inputIndex)
+        plt.imshow(np.sum(result1, axis=2))
+        plt.savefig('./result_images/gradient_attributions/cifar_alex/gradients/cifar_alex_gradients_pre_softmax_accumulated_%d' % inputIndex)
+        #plt.show()
+        plt.close()
+        
+        img = visualize_attrs_windowing(inputMatrix[inputIndex], result1)
+        img.save('./result_images/gradient_attributions/cifar_alex/gradients_times_input/cifar_alex_gradients_pre_softmax_mult_input_%d.png' % inputIndex)
+        #Below is much the same as what visualize_attrs_windowing does, but we need the array, not the PIL image object, to determine the ranks. 
+        attrs = gray_scale(result1)
+        attrs = abs(attrs)
+        attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
+        vis = inputMatrixp[inputIndex]*attrs
+        write_pixel_ranks_to_file(vis, './result_images/gradient_attributions/cifar_alex/gradients_times_input/Pixel_ranks/cifar_alex_gradients_pre_softmax_mult_input_ranks_%d.txt' % inputIndex)
+        
+        im_data = normalize_to_1(inputMatrix[inputIndex])
+        data = np.ndarray.flatten(im_data)
+        feed_dict2 = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
+        base_result2 = gradients.eval(feed_dict2)
+        print base_result2
+        result2 = base_result2.reshape(32, 32, 3)
+        plt.figure()
+        plt.imshow(result2)
+        plt.savefig('./result_images/gradient_attributions/cifar_alex/gradients/cifar_alex_gradients_%d' % inputIndex)
+        write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/cifar_alex/gradients/Pixel_ranks/cifar_alex_gradients_ranks_%d.txt' % inputIndex)
+        plt.imshow(np.sum(result2, axis=2))
+        plt.savefig('./result_images/gradient_attributions/cifar_alex/gradients/cifar_alex_gradients_accumulated_%d' % inputIndex)
+        plt.close()
+        img = visualize_attrs_windowing(inputMatrix[inputIndex], result2)
+        img.save('./result_images/gradient_attributions/cifar_alex/gradients_times_input/cifar_alex_gradients_mult_input_%d.png' % inputIndex)
+        attrs = gray_scale(result2)
+        attrs = abs(attrs)
+        attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
+        vis = inputMatrix[inputIndex]*attrs
+        write_pixel_ranks_to_file(vis, './result_images/gradient_attributions/cifar_alex/gradients_times_input/Pixel_ranks/cifar_alex_gradients_mult_input_ranks_%d.txt' % inputIndex)
+        
+        result3 = tf.argmax((prediction.eval(feed_dict)[0]),0)
+        print('Predicted Label:')
+        print(result3.eval())
+
+        result = prediction2.eval(feed_dict)
+        print('IG Prediction:')
+        print(result)
+
+        result = prediction2.eval(feed_dict)[:,result3.eval()]
+        print('IG Prediction Label:')
+        print(result)
+
+        result = (explanations[result3.eval()]).eval(feed_dict)
+        #print('IG Attribution:')
+        #print(result)
+        
+        img = visualize_attrs_windowing(inputMatrix[inputIndex], result.reshape(32,32,3))
+        img.save('./result_images/integrated_gradients/cifar_alex/integrated_gradients_%d.png' % inputIndex)
+        attrs = gray_scale(result.reshape(32,32,3))
+        attrs = abs(attrs)
+        attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
+        vis = inputMatrix[inputIndex]*attrs
+        write_pixel_ranks_to_file(vis, './result_images/integrated_gradients/cifar_alex/Pixel_ranks/integrated_gradients_ranks_%d.txt' % inputIndex)
+        
+
+def generate_alex_net_mnist_differential_attributions(inputsFile, inputIndex=-1):
+    read_weights_from_h5_file('./mnist_complicated.h5')
+    parse_architecture_and_hyperparams("./model.json")
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    
+    inputImage = None
+    correctLabel = -1
+    if inputIndex == -1:
+        inputIndex = randint(0, len(inputMatrix))
+        inputImage = inputMatrix[inputIndex]
+        correctLabel = labelMatrix[inputIndex]
+    else:
+        inputImage = exampleInputMatrix[inputIndex]
+        correctLabel = inputIndex
+    print "Our image is a", correctLabel
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph('tf_models_alex/mnist_alex.meta')
+        imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models_alex'))
+        graph = tf.get_default_graph()
+        
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        W_fc1 = graph.get_tensor_by_name("import/W_fc1:0")
+        b_fc1 = graph.get_tensor_by_name("import/b_fc1:0")
+        W_fc2 = graph.get_tensor_by_name("import/W_fc2:0")
+        b_fc2 = graph.get_tensor_by_name("import/b_fc2:0")
+        W_fc3 = graph.get_tensor_by_name("import/W_fc3:0")
+        b_fc3 = graph.get_tensor_by_name("import/b_fc3:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        
+        im_data = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1], W_fc3: denseWeightMatrix[2], b_fc3: denseBiasMatrix[2]}
+        input_result = gradients.eval(feed_dict=feed_dict)
+        
+        for i in range(len(inputMatrix)):
+            if labelMatrix[i] == correctLabel:
+                continue
+            im_data = normalize_to_1(inputMatrix[i][:,:,0])
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1], W_fc3: denseWeightMatrix[2], b_fc3: denseBiasMatrix[2]}
+            image_result = gradients.eval(feed_dict=feed_dict)
+            distance = euclidean_distance(input_result, image_result)
+            if distance < minDistance:
+                minDistance = distance
+                closestImageIndex = i
+            if distance == minDistance:
+                print "This image has the same distance as our current closest"
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    print "Closest image index:", closestImageIndex
+    
+    plt.figure()
+    plt.imshow(inputMatrix[closestImageIndex][:,:,0])
+    plt.savefig('./result_images/differential_attributions/mnist_alex/closest_gradients_images/%d\'s_closest_image' % correctLabel) # Just for reference
+    plt.close()
+    
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_keras_for_image(inputImage)
+    if inputResult != correctLabel:
+        print "Error: incorrect prediction, correct label is", correctLabel
+        return -1
+    inputSymOut = symInput[0,0,inputResult]
+    
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    closestResult = do_all_layers_keras_for_image(inputMatrix[closestImageIndex])
+    if closestResult != labelMatrix[closestImageIndex]:
+        print "Error: incorrect prediction, correct label is", labelMatrix[closestImageIndex]
+        return -1
+    closestSymOut = symInput[0,0,closestResult]
+    
+    #The actual differential analyses. First, the difference between the two sets of coeffs.
+    symDistance = euclidean_distance(inputSymOut, closestSymOut)
+    print "Distance between the two sets of coeffs:", symDistance
+    plt.figure()
+    plt.imshow(normalize_to_255(get_most_different_pixels(inputSymOut, closestSymOut)))
+    plt.savefig('./result_images/differential_attributions/mnist_alex/difference_between_coeffs/%d_vs_%d_different_coeffs' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(image_based_on_pixel_ranks(get_most_different_pixels(inputSymOut, closestSymOut)))
+    write_image_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/mnist_alex/difference_between_coeffs/%d_vs_%d_different_coeffs.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.savefig('./result_images/differential_attributions/mnist_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    write_pixel_ranks_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/mnist_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    
+    #Next, difference between the two sets of coeffs times the input. 
+    plt.figure()
+    plt.imshow(normalize_to_255(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    plt.savefig('./result_images/differential_attributions/mnist_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(image_based_on_pixel_ranks(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    write_image_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/differential_attributions/mnist_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.savefig('./result_images/differential_attributions/mnist_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/differential_attributions/mnist_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    #plt.show()
+    return closestImageIndex
+    
+def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
+    '''Generates differential attributions for the given input file. Calls do_all_layers_keras_3d, so it also saves the coefficients and coeffs*input for both the selected image and the closest one as a side effect.'''
+    read_cifar_inputs(inputsFile)
+    read_weights_from_h5_file(cifarH5File)
+    parse_architecture_and_hyperparams(cifarModelFile)
+    
+    inputImage = inputMatrix[inputIndex]
+    correctLabel = labelMatrix[inputIndex]
+    print "Our image is a", correctLabel
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph('tf_models_cifar_alex/cifar_alex.meta')
+        imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models_cifar_alex'))
+        graph = tf.get_default_graph()
+
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        W_fc1 = graph.get_tensor_by_name("import/W_fc1:0")
+        b_fc1 = graph.get_tensor_by_name("import/b_fc1:0")
+        W_fc2 = graph.get_tensor_by_name("import/W_fc2:0")
+        b_fc2 = graph.get_tensor_by_name("import/b_fc2:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        
+        im_data = normalize_to_1(inputImage)
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
+        input_result = gradients.eval(feed_dict=feed_dict)
+        
+        for i in range(len(inputMatrix)):
+            if labelMatrix[i] == correctLabel:
+                continue
+            im_data = normalize_to_1(inputMatrix[i])
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
+            image_result = gradients.eval(feed_dict=feed_dict)
+            distance = euclidean_distance(input_result, image_result)
+            if distance < minDistance:
+                minDistance = distance
+                print distance, i
+                closestImageIndex = i
+            if distance == minDistance:
+                print "Image", i, "has the same distance as our current closest"
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    print "Closest image index:", closestImageIndex
+        
+    plt.figure()
+    plt.imshow(inputMatrix[closestImageIndex])
+    plt.savefig('./result_images/differential_attributions/cifar_alex/closest_gradients_images/%d\'s_closest_image' % inputIndex) # Just for reference
+    plt.close()
+        
+    init_3d_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_keras_3d(inputIndex, 'cifar_alex')
+    if inputResult != correctLabel:
+        print "Error: incorrect prediction, correct label is", correctLabel
+        #return -1
+    inputSymOut = symInput[0,0,inputResult]
+        
+    init_3d_symInput(inputImage.shape[0],inputImage.shape[1])
+    closestResult = do_all_layers_keras_3d(closestImageIndex, 'cifar_alex')
+    if closestResult != labelMatrix[closestImageIndex]:
+        print "Error: incorrect prediction, correct label is", labelMatrix[closestImageIndex]
+            #return -1
+    closestSymOut = symInput[0,0,closestResult]
+        
+    #The actual differential analyses. First, the difference between the two sets of coeffs.
+    symDistance = euclidean_distance(inputSymOut, closestSymOut)
+    print "Distance between the two sets of coeffs:", symDistance
+    plt.figure()
+    plt.imshow(normalize_to_255(get_most_different_pixels(inputSymOut, closestSymOut)))
+    plt.savefig('./result_images/differential_attributions/cifar_alex/difference_between_coeffs/%d_vs_%d_different_coeffs' % (inputIndex, labelMatrix[closestImageIndex]))
+    write_image_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/cifar_alex/difference_between_coeffs/%d_vs_%d_different_coeffs.txt' % (inputIndex, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/cifar_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranks.txt' % (inputIndex, labelMatrix[closestImageIndex]))
+    #plt.imshow(image_based_on_pixel_ranks(get_most_different_pixels(inputSymOut, closestSymOut)))
+    #plt.savefig('./result_images/differential_attributions/cifar_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranked' % (inputIndex, labelMatrix[closestImageIndex]))
+    plt.close()
+        
+    #Next, difference between the two sets of coeffs times the input. 
+    plt.figure()
+    diffTimesInput = visualize_attrs_windowing(inputImage, get_most_different_pixels(inputSymOut, closestSymOut))
+    
+    diffTimesInput.savefig('./result_images/differential_attributions/cifar_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.png' % (inputIndex, labelMatrix[closestImageIndex]))
+    attrs = gray_scale(get_most_different_pixels(inputSymOut, closestSymOut))
+    attrs = abs(attrs)
+    attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
+    vis = img*attrs
+    write_image_to_file(vis, './result_images/differential_attributions/cifar_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.txt' % (inputIndex, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(vis, './result_images/differential_attributions/cifar_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (inputIndex, labelMatrix[closestImageIndex]))
+    #plt.imshow(image_based_on_pixel_ranks(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    #plt.savefig('./result_images/differential_attributions/cifar_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    #plt.show()
+    return closestImageIndex
+        
+
+def generate_relu_differential_attributions(inputsFile, inputIndex=-1):
+    read_weights_from_file("./mnist_3A_layer.txt")
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    
+    inputImage = None
+    correctLabel = -1
+    if inputIndex == -1:
+        inputIndex = randint(0, len(inputMatrix))
+        inputImage = inputMatrix[inputIndex]
+        correctLabel = labelMatrix[inputIndex]
+    else:
+        inputImage = exampleInputMatrix[inputIndex]
+        correctLabel = inputIndex
+    print "Our image is a", correctLabel
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph("./tf_models_relu_framework/mnist_relu_framework.meta")
+        imported_graph.restore(sess, tf.train.latest_checkpoint("./tf_models_relu_framework"))
+        graph = tf.get_default_graph()
+        convLayer = 0
+        denseLayer = 0
+        
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        
+        im_data = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], W_conv1: weightMatrix[0], b_conv1: biasMatrix[0], W_conv2: weightMatrix[1], b_conv2: biasMatrix[1], W_conv3: weightMatrix[2], b_conv3: biasMatrix[2], W_conv4: weightMatrix[3], b_conv4: biasMatrix[3]}
+        input_result = gradients.eval(feed_dict=feed_dict)
+        
+        for i in range(len(inputMatrix)):
+            if labelMatrix[i] == correctLabel:
+                continue
+            im_data = normalize_to_1(inputMatrix[i][:,:,0])
+            data = np.ndarray.flatten(im_data)
+            feed_dict = {x:[data], W_conv1: weightMatrix[0], b_conv1: biasMatrix[0], W_conv2: weightMatrix[1], b_conv2: biasMatrix[1], W_conv3: weightMatrix[2], b_conv3: biasMatrix[2], W_conv4: weightMatrix[3], b_conv4: biasMatrix[3]}
+            image_result = gradients.eval(feed_dict=feed_dict)
+            distance = euclidean_distance(input_result, image_result)
+            if distance < minDistance:
+                minDistance = distance
+                closestImageIndex = i
+            if distance == minDistance:
+                print "This image has the same distance as our current closest"
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    print "Closest image index:", closestImageIndex
+    
+    plt.figure()
+    plt.imshow(inputMatrix[closestImageIndex][:,:,0])
+    plt.savefig('./result_images/differential_attributions/relu_network/closest_gradients_images/%d\'s_closest_image' % correctLabel) # Just for reference
+    plt.close()
+    
+    read_weights_from_file("./mnist_3A_layer.txt")
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_for_image(inputImage)
+    if inputResult != correctLabel:
+        print "Error: incorrect prediction, correct label is", correctLabel
+        return -1
+    inputSymOut = symInput[0,0,inputResult]
+    
+    read_weights_from_file("./mnist_3A_layer.txt")
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    closestResult = do_all_layers_for_image(inputMatrix[closestImageIndex])
+    if closestResult != labelMatrix[closestImageIndex]:
+        print "Error: incorrect prediction, correct label is", labelMatrix[closestImageIndex]
+        return -1
+    closestSymOut = symInput[0,0,closestResult]
+    
+    #The actual differential analyses. First, the difference between the two sets of coeffs.
+    symDistance = euclidean_distance(inputSymOut, closestSymOut)
+    print "Distance between the two sets of coeffs:", symDistance
+    plt.figure()
+    plt.imshow(normalize_to_255(get_most_different_pixels(inputSymOut, closestSymOut)))
+    plt.savefig('./result_images/differential_attributions/relu_network/difference_between_coeffs/%d_vs_%d_different_coeffs' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(image_based_on_pixel_ranks(get_most_different_pixels(inputSymOut, closestSymOut)))
+    write_image_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/relu_network/difference_between_coeffs/%d_vs_%d_different_coeffs.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.savefig('./result_images/differential_attributions/relu_network/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    write_pixel_ranks_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/relu_network/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    
+    #Next, difference between the two sets of coeffs times the input. 
+    plt.figure()
+    plt.imshow(normalize_to_255(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    plt.savefig('./result_images/differential_attributions/relu_network/difference_times_input/%d_vs_%d_different_coeffs_times_in' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.imshow(image_based_on_pixel_ranks(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
+    write_image_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/differential_attributions/relu_network/difference_times_input/%d_vs_%d_different_coeffs_times_in.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.savefig('./result_images/differential_attributions/relu_network/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/differential_attributions/relu_network/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    #plt.show()
+    return closestImageIndex
+
+def generate_relu_gradients_and_integrated_grads(inputIndex):
+    read_weights_from_file("./mnist_3A_layer.txt")
+    
+    inputImage = exampleInputMatrix[inputIndex]
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph("./tf_models_relu_framework/mnist_relu_framework.meta")
+        imported_graph.restore(sess, tf.train.latest_checkpoint("./tf_models_relu_framework"))
+        graph = tf.get_default_graph()
+        convLayer = 0
+        denseLayer = 0
+        
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        
+        im_data = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], W_conv1: weightMatrix[0], b_conv1: biasMatrix[0], W_conv2: weightMatrix[1], b_conv2: biasMatrix[1], W_conv3: weightMatrix[2], b_conv3: biasMatrix[2], W_conv4: weightMatrix[3], b_conv4: biasMatrix[3]}
+        input_result = gradients.eval(feed_dict=feed_dict)
+        
+        base_result = gradients_pre_softmax.eval(feed_dict)
+        #result1 = get_top_pixels(base_result, 0.2)
+        result1 = base_result.reshape(28, 28)
+        plt.figure()
+        plt.imshow(normalize_to_255(result1))
+        plt.savefig('./result_images/gradient_attributions/relu_network/gradients/relu_gradients_pre_softmax_%d'% inputIndex)
+        write_image_to_file(result1, './result_images/gradient_attributions/relu_network/gradients/relu_gradients_pre_softmax_%d.txt'% inputIndex)
+        write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/relu_network/gradients/Pixel_ranks/relu_gradients_pre_softmax_ranks_%d.txt' % inputIndex)
+        result2 = np.multiply(base_result, data)
+        result2 = result2.reshape(28, 28)
+        plt.figure()
+        plt.imshow(normalize_to_255(result2))
+        plt.savefig('./result_images/gradient_attributions/relu_network/gradients_times_input/relu_gradients_pre_softmax_mult_input_%d'% inputIndex)
+        write_image_to_file(result2, './result_images/gradient_attributions/relu_network/gradients_times_input/relu_gradients_pre_softmax_mult_input_%d.txt'% inputIndex)
+        write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/relu_network/gradients_times_input/Pixel_ranks/relu_gradients_pre_softmax_mult_input_ranks_%d.txt' % inputIndex)
+        
+        base_result = gradients.eval(feed_dict)
+        #result1 = get_top_pixels(base_result, 0.2)
+        result1 = base_result.reshape(28, 28)
+        plt.figure()
+        plt.imshow(normalize_to_255(result1))
+        plt.savefig('./result_images/gradient_attributions/relu_network/gradients/relu_gradients_%d'% inputIndex)
+        write_image_to_file_scientific(result1, './result_images/gradient_attributions/relu_network/gradients/relu_gradients_%d.txt'% inputIndex)
+        write_pixel_ranks_to_file(result1, './result_images/gradient_attributions/relu_network/gradients/Pixel_ranks/relu_gradients_ranks_%d.txt'% inputIndex)
+        result2 = np.multiply(base_result, data)
+        result2 = result2.reshape(28, 28)
+        plt.figure()
+        plt.imshow(normalize_to_255(result2))
+        plt.savefig('./result_images/gradient_attributions/relu_network/gradients_times_input/relu_gradients_mult_input_%d'% inputIndex)
+        write_image_to_file_scientific(result2, './result_images/gradient_attributions/relu_network/gradients_times_input/relu_gradients_mult_input_%d.txt'% inputIndex)
+        write_pixel_ranks_to_file(result2, './result_images/gradient_attributions/relu_network/gradients_times_input/Pixel_ranks/relu_gradients_mult_input_ranks_%d.txt'% inputIndex)
+        plt.close()
+        
+        result1 = tf.argmax((prediction.eval(feed_dict)[0]),0)
+        print('Predicted Label:')
+        print(result1.eval())
+
+        result = prediction2.eval(feed_dict)
+        print('IG Prediction:')
+        print(result)
+
+        result = prediction2.eval(feed_dict)[:,result1.eval()]
+        print('IG Prediction Label:')
+        print(result)
+
+        result = (explanations[result1.eval()]).eval(feed_dict)
+        #print('IG Attribution:')
+        #print(result)
+        plt.imshow(normalize_to_255(result.reshape((28,28))))
+        plt.savefig('./result_images/integrated_gradients/relu_network/integrated_gradients_%d' % inputIndex)
+        write_image_to_file(result.reshape((28,28)), './result_images/integrated_gradients/relu_network/integrated_gradients_%d.txt' % inputIndex)
+        write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/relu_network/Pixel_ranks/integrated_gradients_ranks_%d.txt' % inputIndex)
 
 weightsFile = "./mnist_3A_layer.txt"
-inputsFile = "./mnist_test.csv"
+inputsFile = "./mnist_train.csv"
 exampleInputsFile = "./example_10.txt"
+cifarInputsFile = "./cifar-10-batches-py/test_batch"
 h5File = "./mnist_complicated.h5"
+cifarH5File = "./cifar10_complicated.h5"
+cifarModelFile = "./cifar_model/model.json"
 modelFile = "./model.json"
 metaFile = "./tf_models/mnist.meta"
 altMetaFile = './tf_models/gradients_testing_20000.meta'
 noDropoutMetaFile = "./tf_models/mnist_no_dropout.meta"
 noPoolingMetaFile = "./tf_models/mnist_no_pooling.meta"
 reluMetaFile = "./tf_models_relu/mnist_relu_network.meta"
+reluFrameworkMetaFile = "./tf_models_relu_framework/mnist_relu_framework.meta"
+alexMetaFile ="./tf_models_alex/mnist_alex.meta"
 gradientsTestingMetaFile = './tf.models/gradients_testing.meta'
 checkpoint = "./tf_models"
 reluCheckpoint = "./tf_models_relu"
+reluFrameworkCheckpoint = "./tf_models_relu_framework"
+alexCheckpoint = "./tf_models_alex"
 gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ranks_0.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
-inputIndex = 4
+inputIndex = 7
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
-exampleInputMatrix = np.multiply(255, inputMatrix)
-#exampleInputMatrix = inputMatrix
+#exampleInputMatrix = np.multiply(255, inputMatrix)
+exampleInputMatrix = inputMatrix
+labelMatrix = np.arange(10)
 
 #do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
+
+#Use this one for differential analysis of mnist_deep and tf_relu networks. Gradient analysis of mnist_deep (and tf_relu, if you really need it) is done in test.py/tf_testing_3()
 #find_closest_input_with_different_label(inputsFile, reluMetaFile, inputIndex, ckpoint=reluCheckpoint)
+
+#Use these for differential and gradient analysis of mnist_alex network.
+#generate_alex_net_mnist_differential_attributions(inputsFile, inputIndex)
+#generate_alex_net_mnist_gradients()
+
+#Use these for differential and gradient analysis of our original relu network.
+#generate_relu_differential_attributions(inputsFile, inputIndex)
+#generate_relu_gradients_and_integrated_grads(inputIndex)
+
 #random_distances_experiment(inputsFile, metaFile, inputIndex=0)
 #sufficient_distance_experiment(inputsFile, metaFile, inputIndex=9)
 #get_percentage_same_ranks(gradientRanksFile, experimentRanksFile)
 
-read_weights_from_h5_file(h5File)
-parse_architecture_and_hyperparams(modelFile)
+#Get coefficients for cifar-10 images using alexnet. 
+#read_cifar_inputs(cifarInputsFile)
+#read_weights_from_h5_file(cifarH5File)
+#parse_architecture_and_hyperparams(cifarModelFile)
+#init_3d_symInput(32, 32)
+#kerasResult = do_all_layers_keras_3d(inputIndex, 'cifar_alex')
 
+generate_alex_net_cifar_differential_attributions(cifarInputsFile, inputIndex)
+
+#for i in range(10):
+#generate_alex_net_cifar_gradients(i)
+'''plt.imshow(inputMatrix[i])
+    plt.show()
+    img = PIL.Image.fromarray(inputMatrix[i])
+    #img.save('./cifar_images/cifar%d.png' % i)
+    img.show()'''
+
+#Get coefficients for mnist images using (non-tf) relu network.
 #init(exampleInputsFile, weightsFile, 28, 28, True)
 #do_all_layers(inputIndex, 0, 1)
-#read_weights_from_saved_tf_model(reluMetaFile, ckpoint=reluCheckpoint)
-init(exampleInputsFile, weightsFile, 28, 28, True)
-kerasResult = do_all_layers_keras(inputIndex)
+
+#Get coefficients for mnist images using tf_relu or mnist_deep networks. Read weights from correct meta file to choose between them.. 
+#read_weights_from_saved_tf_model(reluMetaFile, ckpoint=relu=Checkpoint)
+#init(exampleInputsFile, weightsFile, 28, 28, True)
+#kerasResult = do_all_layers_keras(inputIndex, 'relu_network')
+
+#Get coefficients for mnist images using alexnet.
+#read_weights_from_h5_file(h5File)
+#parse_architecture_and_hyperparams(modelFile)
+#init(exampleInputsFile, weightsFile, 28, 28, True)
+#kerasResult = do_all_layers_keras(inputIndex, 'mnist_alex')
+
+#Prints distances between pairs of rank files. Can't use the loop for differential, since the names aren't consistent (0 vs 6, 1 vs 7, etc.)
+#total = 0
+#for i in range(len(exampleInputMatrix)):
+    #d=get_rank_distance_from_files(('./result_images/inputs/Pixel_ranks/mnist_input_image_ranks_%d.txt' % inputIndex), ('./result_images/differential_attributions/mnist_alex/difference_times_input/Pixel_ranks/%d_vs_1_different_coeffs_times_in_ranks.txt'%inputIndex))
+    #print d
+    #total += d
+#print total/10

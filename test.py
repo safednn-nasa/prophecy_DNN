@@ -435,9 +435,15 @@ def bias_variable(shape):
   
 def conv2d(x, W):
     return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+    
+def conv2d_no_padding(x, W):
+    return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='VALID')
+    
+def conv3d_no_padding(x, W):
+    return tf.nn.conv3d(x, W, strides=[1, 1, 1, 1], padding='VALID')
 
 def max_pool_2x2(x):
-    return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME') 
+    return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
 #Network without pooling layers    
 def tf_testing_4():
@@ -961,8 +967,279 @@ def tf_relu_network():
             plt.savefig('./result_images/integrated_gradients/tf_relu_network/integrated_gradients_%d'%i)
             write_image_to_file(result.reshape(28,28), './result_images/integrated_gradients/tf_relu_network/integrated_gradients_%d.txt'%i)
             write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/tf_relu_network/Pixel_ranks/integrated_gradients_ranks_%d.txt'%i)
+  
+def tf_relu_network_framework():
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    x = tf.identity(tf.placeholder(tf.float32, shape=[None, 784]), name="import/x")
+    inter, stepsize, ref = ig.linear_inpterpolation(x, num_steps=50)
+    y_ = tf.placeholder(tf.float32, shape=[None, 10], name="import/y")
     
+    unused = weight_variable([1,1,1,1])
+    
+    W_conv1 = tf.placeholder(tf.float32, shape=[784, 10], name="import/W_conv1")
+    b_conv1 = tf.placeholder(tf.float32, shape=[10], name="import/b_conv1")
+    x_image = tf.reshape(x, [-1, 784])
+    x_image_inter = tf.reshape(inter, [-1, 784])
+    
+    h_conv1 = tf.nn.relu(tf.matmul(x_image, W_conv1) + b_conv1)
+    h_conv1_inter = tf.identity(tf.nn.relu(tf.matmul(x_image_inter, W_conv1) + b_conv1), name="import/h_conv1_inter")
+    
+    W_conv2 = tf.placeholder(tf.float32, shape=[10, 10], name="import/W_conv2")
+    b_conv2 = tf.placeholder(tf.float32, shape=[10], name="import/b_conv2")
+    
+    h_conv2 = tf.nn.relu(tf.matmul(h_conv1, W_conv2) + b_conv2)
+    h_conv2_inter = tf.identity(tf.nn.relu(tf.matmul(h_conv1_inter, W_conv2) + b_conv2), name="import/h_conv2_inter")
+    
+    W_conv3 = tf.placeholder(tf.float32, shape=[10, 10], name="import/W_conv3")
+    b_conv3 = tf.placeholder(tf.float32, shape=[10], name="import/b_conv3")
+    
+    h_conv3 = tf.nn.relu(tf.matmul(h_conv2, W_conv3) + b_conv3)
+    h_conv3_inter = tf.identity(tf.nn.relu(tf.matmul(h_conv2_inter, W_conv3) + b_conv3), name="import/h_conv3_inter")
+    
+    W_conv4 = tf.placeholder(tf.float32, shape=[10, 10], name="import/W_conv4")
+    b_conv4 = tf.placeholder(tf.float32, shape=[10], name="import/b_conv4")
+    
+    y_conv = tf.matmul(h_conv3, W_conv4) + b_conv4
+    y_conv_inter = tf.identity(tf.matmul(h_conv3_inter, W_conv4) + b_conv4, name="import/y_conv_inter")
+    
+    prediction = tf.identity(tf.nn.softmax(y_conv), name="import/prediction")
+    prediction2 = tf.identity(tf.nn.softmax(y_conv_inter), name="import/prediction2")
+    
+    explanations = []
+    exp0 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 0], num_steps=50), name="import/exp0")
+    explanations.append(exp0)
+    exp1 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 1], num_steps=50), name="import/exp1")
+    explanations.append(exp1)
+    exp2 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 2], num_steps=50), name="import/exp2")
+    explanations.append(exp2)
+    exp3 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 3], num_steps=50), name="import/exp3")
+    explanations.append(exp3)
+    exp4 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 4], num_steps=50), name="import/exp4")
+    explanations.append(exp4)
+    exp5 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 5], num_steps=50), name="import/exp5")
+    explanations.append(exp5)
+    exp6 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 6], num_steps=50), name="import/exp6")
+    explanations.append(exp6)
+    exp7 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 7], num_steps=50), name="import/exp7")
+    explanations.append(exp7)
+    exp8 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 8], num_steps=50), name="import/exp8")
+    explanations.append(exp8)
+    exp9 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 9], num_steps=50), name="import/exp9")
+    explanations.append(exp9)
+    explantions = tf.identity(explanations, name="import/explanations")
+    
+    correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+    
+    gradients_pre_softmax = tf.identity(tf.gradients(tf.reduce_max(y_conv), x), name="import/gradients_pre_softmax")
+    gradients_pre_softmax = tf.Print(gradients_pre_softmax, [gradients_pre_softmax], message="Gradients pre softmax:\n")
+    gradients = tf.identity(tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x), name="import/gradients")
+    gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
+    
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        saver.save(sess, './tf_models_relu_framework/mnist_relu_framework')
+        
+def tf_alex_network():
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    x = tf.placeholder(tf.float32, shape=[None, 784], name="import/x")
+    inter, stepsize, ref = ig.linear_inpterpolation(x, num_steps=50)
+    y_ = tf.placeholder(tf.float32, shape=[None, 10], name="import/y")
+    
+    unused = weight_variable([1,1,1,1])
+    
+    W_conv1 = tf.placeholder(tf.float32, shape=[3, 3, 1, 32], name="import/W_conv1")
+    b_conv1 = tf.placeholder(tf.float32, shape=[32], name="import/b_conv1")
+    x_image = tf.reshape(x, [-1, 28, 28, 1])
+    x_image_inter = tf.reshape(inter, [-1, 28, 28, 1])
+    
+    h_conv1 = tf.identity(tf.nn.relu(conv2d_no_padding(x_image, W_conv1) + b_conv1), name="import/h_conv1")
+    h_conv1_inter = tf.identity(tf.nn.relu(conv2d_no_padding(x_image_inter, W_conv1) + b_conv1), name="import/h_conv1_inter")
+    
+    W_conv2 = tf.placeholder(tf.float32, shape=[3, 3, 32, 32], name="import/W_conv2")
+    b_conv2 = tf.placeholder(tf.float32, shape=[32], name="import/b_conv2")
+    
+    h_conv2 = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv1, W_conv2) + b_conv2), name="import/h_conv2")
+    h_conv2_inter = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv1_inter, W_conv2) + b_conv2), name="import/h_conv2_inter")
+    
+    h_pool1 = tf.identity(max_pool_2x2(h_conv2), name="import/h_pool1")
+    h_pool1_inter = tf.identity(max_pool_2x2(h_conv2_inter), name="import/h_pool1_inter")
+    
+    W_conv3 = tf.placeholder(tf.float32, shape=[3, 3, 32, 64], name="import/W_conv3")
+    b_conv3 = tf.placeholder(tf.float32, shape=[64], name="import/b_conv3")
+    
+    h_conv3 = tf.identity(tf.nn.relu(conv2d_no_padding(h_pool1, W_conv3) + b_conv3), name="import/h_conv1")
+    h_conv3_inter = tf.identity(tf.nn.relu(conv2d_no_padding(h_pool1_inter, W_conv3) + b_conv3), name="import/h_conv3_inter")
+    
+    W_conv4 = tf.placeholder(tf.float32, shape=[3, 3, 64, 64], name="import/W_conv4")
+    b_conv4 = tf.placeholder(tf.float32, shape=[64], name="import/b_conv4")
+    
+    h_conv4 = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv3, W_conv4) + b_conv4), name="import/h_conv2")
+    h_conv4_inter = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv3_inter, W_conv4) + b_conv4), name="import/h_conv2_inter")
+    
+    h_pool2 = tf.identity(max_pool_2x2(h_conv4), name="import/h_pool2")
+    h_pool2_inter = tf.identity(max_pool_2x2(h_conv4_inter), name="import/h_pool2_inter")
+    
+    W_fc1 = tf.placeholder(tf.float32, shape=[4 * 4 * 64, 200], name="import/W_fc1")
+    b_fc1 = tf.placeholder(tf.float32, shape=[200], name="import/b_fc1")
+    
+    h_pool2_flat = tf.identity(tf.reshape(h_pool2, [-1, 4*4*64]), name="import/h_pool2_flat")
+    h_pool2_flat_inter = tf.identity(tf.reshape(h_pool2_inter, [-1, 4*4*64]), name="import/h_pool2_flat_inter")
+    
+    h_fc1 = tf.identity(tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1), name="import/h_fc1")
+    h_fc1_inter = tf.identity(tf.nn.relu(tf.matmul(h_pool2_flat_inter, W_fc1) + b_fc1), name="import/h_fc1_inter")
+    
+    W_fc2 = tf.placeholder(tf.float32, shape=[200, 200], name="import/W_fc2")
+    b_fc2 = tf.placeholder(tf.float32, shape=[200], name="import/b_fc2")
+    
+    h_fc2 = tf.identity(tf.nn.relu(tf.matmul(h_fc1, W_fc2) + b_fc2), name="import/h_fc2")
+    h_fc2_inter = tf.identity(tf.nn.relu(tf.matmul(h_fc1_inter, W_fc2) + b_fc2), name="import/h_fc2_inter")
+    
+    W_fc3 = tf.placeholder(tf.float32, shape=[200, 10], name="import/W_fc3")
+    b_fc3 = tf.placeholder(tf.float32, shape=[10], name="import/b_fc3")
+
+    y_conv = tf.identity(tf.matmul(h_fc2, W_fc3) + b_fc3, name="import/y_conv")
+    y_conv_inter = tf.identity(tf.matmul(h_fc2_inter, W_fc3) + b_fc3, name="import/y_conv_inter")
+    
+    prediction = tf.identity(tf.nn.softmax(y_conv), name="import/prediction")
+    prediction2 = tf.identity(tf.nn.softmax(y_conv_inter), name="import/prediction2")
+    
+    explanations = []
+    exp0 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 0], num_steps=50), name="import/exp0")
+    explanations.append(exp0)
+    exp1 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 1], num_steps=50), name="import/exp1")
+    explanations.append(exp1)
+    exp2 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 2], num_steps=50), name="import/exp2")
+    explanations.append(exp2)
+    exp3 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 3], num_steps=50), name="import/exp3")
+    explanations.append(exp3)
+    exp4 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 4], num_steps=50), name="import/exp4")
+    explanations.append(exp4)
+    exp5 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 5], num_steps=50), name="import/exp5")
+    explanations.append(exp5)
+    exp6 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 6], num_steps=50), name="import/exp6")
+    explanations.append(exp6)
+    exp7 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 7], num_steps=50), name="import/exp7")
+    explanations.append(exp7)
+    exp8 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 8], num_steps=50), name="import/exp8")
+    explanations.append(exp8)
+    exp9 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 9], num_steps=50), name="import/exp9")
+    explanations.append(exp9)
+    explantions = tf.identity(explanations, name="import/explanations")
+    correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+    
+    gradients_pre_softmax = tf.gradients(tf.reduce_max(y_conv), x)
+    gradients_pre_softmax = tf.identity(tf.Print(gradients_pre_softmax, [gradients_pre_softmax], message="Gradients pre softmax:\n"), name="import/gradients_pre_softmax")
+    gradients = tf.identity(tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x), name="import/gradients")
+    gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
+    
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        
+        saver.save(sess, 'tf_models_alex/mnist_alex')
+  
+def tf_alex_cifar_framework():
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    x = tf.placeholder(tf.float32, shape=[None, 3072], name="import/x")
+    inter, stepsize, ref = ig.linear_inpterpolation(x, num_steps=50)
+    y_ = tf.placeholder(tf.float32, shape=[None, 10], name="import/y")
+    
+    unused = weight_variable([1,1,1,1])
+    
+    W_conv1 = tf.placeholder(tf.float32, shape=[3, 3, 3, 32], name="import/W_conv1")
+    b_conv1 = tf.placeholder(tf.float32, shape=[32], name="import/b_conv1")
+    x_image = tf.reshape(x, [-1, 32, 32, 3])
+    x_image_inter = tf.reshape(inter, [-1, 32, 32, 3])
+    
+    h_conv1 = tf.identity(tf.nn.relu(conv2d_no_padding(x_image, W_conv1) + b_conv1), name="import/h_conv1")
+    h_conv1_inter = tf.identity(tf.nn.relu(conv2d_no_padding(x_image_inter, W_conv1) + b_conv1), name="import/h_conv1_inter")
+    
+    W_conv2 = tf.placeholder(tf.float32, shape=[3, 3, 32, 32], name="import/W_conv2")
+    b_conv2 = tf.placeholder(tf.float32, shape=[32], name="import/b_conv2")
+    
+    h_conv2 = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv1, W_conv2) + b_conv2), name="import/h_conv2")
+    h_conv2_inter = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv1_inter, W_conv2) + b_conv2), name="import/h_conv2_inter")
+    
+    h_pool1 = tf.identity(max_pool_2x2(h_conv2), name="import/h_pool1")
+    h_pool1_inter = tf.identity(max_pool_2x2(h_conv2_inter), name="import/h_pool1_inter")
+    
+    W_conv3 = tf.placeholder(tf.float32, shape=[3, 3, 32, 64], name="import/W_conv3")
+    b_conv3 = tf.placeholder(tf.float32, shape=[64], name="import/b_conv3")
+    
+    h_conv3 = tf.identity(tf.nn.relu(conv2d_no_padding(h_pool1, W_conv3) + b_conv3), name="import/h_conv1")
+    h_conv3_inter = tf.identity(tf.nn.relu(conv2d_no_padding(h_pool1_inter, W_conv3) + b_conv3), name="import/h_conv3_inter")
+    
+    W_conv4 = tf.placeholder(tf.float32, shape=[3, 3, 64, 64], name="import/W_conv4")
+    b_conv4 = tf.placeholder(tf.float32, shape=[64], name="import/b_conv4")
+    
+    h_conv4 = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv3, W_conv4) + b_conv4), name="import/h_conv2")
+    h_conv4_inter = tf.identity(tf.nn.relu(conv2d_no_padding(h_conv3_inter, W_conv4) + b_conv4), name="import/h_conv2_inter")
+    
+    h_pool2 = tf.identity(max_pool_2x2(h_conv4), name="import/h_pool2")
+    h_pool2_inter = tf.identity(max_pool_2x2(h_conv4_inter), name="import/h_pool2_inter")
+    
+    W_fc1 = tf.placeholder(tf.float32, shape=[5 * 5 * 64, 512], name="import/W_fc1")
+    b_fc1 = tf.placeholder(tf.float32, shape=[512], name="import/b_fc1")
+    
+    h_pool2_flat = tf.identity(tf.reshape(h_pool2, [-1, 5*5*64]), name="import/h_pool2_flat")
+    h_pool2_flat_inter = tf.identity(tf.reshape(h_pool2_inter, [-1, 5*5*64]), name="import/h_pool2_flat_inter")
+    
+    h_fc1 = tf.identity(tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1), name="import/h_fc1")
+    h_fc1_inter = tf.identity(tf.nn.relu(tf.matmul(h_pool2_flat_inter, W_fc1) + b_fc1), name="import/h_fc1_inter")
+    
+    W_fc2 = tf.placeholder(tf.float32, shape=[512, 10], name="import/W_fc2")
+    b_fc2 = tf.placeholder(tf.float32, shape=[10], name="import/b_fc2")
+
+    y_conv = tf.identity(tf.matmul(h_fc1, W_fc2) + b_fc2, name="import/y_conv")
+    y_conv_inter = tf.identity(tf.matmul(h_fc1_inter, W_fc2) + b_fc2, name="import/y_conv_inter")
+    
+    prediction = tf.identity(tf.nn.softmax(y_conv), name="import/prediction")
+    prediction2 = tf.identity(tf.nn.softmax(y_conv_inter), name="import/prediction2")
+    
+    explanations = []
+    exp0 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 0], num_steps=50), name="import/exp0")
+    explanations.append(exp0)
+    exp1 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 1], num_steps=50), name="import/exp1")
+    explanations.append(exp1)
+    exp2 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 2], num_steps=50), name="import/exp2")
+    explanations.append(exp2)
+    exp3 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 3], num_steps=50), name="import/exp3")
+    explanations.append(exp3)
+    exp4 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 4], num_steps=50), name="import/exp4")
+    explanations.append(exp4)
+    exp5 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 5], num_steps=50), name="import/exp5")
+    explanations.append(exp5)
+    exp6 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 6], num_steps=50), name="import/exp6")
+    explanations.append(exp6)
+    exp7 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 7], num_steps=50), name="import/exp7")
+    explanations.append(exp7)
+    exp8 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 8], num_steps=50), name="import/exp8")
+    explanations.append(exp8)
+    exp9 = tf.identity(ig.build_ig(inter, stepsize, prediction2[:, 9], num_steps=50), name="import/exp9")
+    explanations.append(exp9)
+    explantions = tf.identity(explanations, name="import/explanations")
+    correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1))
+    
+    gradients_pre_softmax = tf.gradients(tf.reduce_max(y_conv), x)
+    gradients_pre_softmax = tf.identity(tf.Print(gradients_pre_softmax, [gradients_pre_softmax], message="Gradients pre softmax:\n"), name="import/gradients_pre_softmax")
+    gradients = tf.identity(tf.gradients(tf.reduce_max(tf.nn.softmax(y_conv)), x), name="import/gradients")
+    gradients = tf.Print(gradients, [gradients], message="Gradients:\n")
+    
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        
+        saver.save(sess, 'tf_models_cifar_alex/cifar_alex')
+
 def tf_testing_3():
+    '''Gradient and integrated_gradient analysis of mnist_deep'''
     graph = tf.Graph()
     with tf.Session() as sess:
         #imported_graph = tf.train.import_meta_graph('tf_models/gradients_testing.meta')
@@ -1118,7 +1395,10 @@ inputIndex = 9
 
 #tf_testing_2()
 #tf_testing_3()
-tf_relu_network()
+#tf_relu_network()
 #tf_testing_4()
+#tf_alex_network()
+#tf_relu_network_framework()
+tf_alex_cifar_framework()
     
 #pool_testing(2,2)
