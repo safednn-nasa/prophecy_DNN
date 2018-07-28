@@ -1045,14 +1045,14 @@ def do_all_layers_keras_3d(inputNumber, outDir):
     symResultImage = symInput[0,0,maxIndex]
     symTimesIn = np.zeros((32,32,3))
     for i in range(3):
-        symTimesIn[:,:,i] = np.multiply(symInput[0,0,inputNumber,:,:,i], inputMatrix[inputNumber][:,:,i])
-        plt.figure()
-        plt.imshow(symInput[0,0,inputNumber,:,:,i])
+        symTimesIn[:,:,i] = np.multiply(symInput[0,0,maxIndex,:,:,i], inputMatrix[inputNumber][:,:,i])
+        '''plt.figure()
+        plt.imshow(symInput[0,0,maxIndex,:,:,i])
         plt.title("Coeffs, color number %d"%i)
         plt.show()
         plt.imshow(symTimesIn[:,:,i])
         plt.title("coeffs*in, color number %d"%i)
-        plt.show()
+        plt.show()'''
     #symTimesInImage = np.sum(symTimesIn, axis=2)
     symTimesInImage = visualize_attrs_windowing(inputMatrix[inputNumber], symInput[0,0,maxIndex])
     
@@ -1068,7 +1068,7 @@ def do_all_layers_keras_3d(inputNumber, outDir):
     plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input'% (outDir, outDir, inputNumber))
     write_image_to_file(symTimesIn, './result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.txt'% (outDir, outDir, inputNumber))'''
     symTimesInImage.save('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.png'% (outDir, outDir, inputNumber))
-    symTimesInImage.show()
+    #symTimesInImage.show()
     
     #Pixel ranks of the above
     plt.figure()
@@ -1835,9 +1835,9 @@ def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
     print "Distance between the two sets of coeffs:", symDistance
     plt.figure()
     plt.imshow(normalize_to_255(get_most_different_pixels(inputSymOut, closestSymOut)))
-    plt.savefig('./result_images/differential_attributions/cifar_alex/difference_between_coeffs/%d_vs_%d_different_coeffs' % (inputIndex, labelMatrix[closestImageIndex]))
-    write_image_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/cifar_alex/difference_between_coeffs/%d_vs_%d_different_coeffs.txt' % (inputIndex, labelMatrix[closestImageIndex]))
-    write_pixel_ranks_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/cifar_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranks.txt' % (inputIndex, labelMatrix[closestImageIndex]))
+    plt.savefig('./result_images/differential_attributions/cifar_alex/difference_between_coeffs/%d_vs_%d_different_coeffs' % (inputIndex, closestImageIndex))
+    write_image_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/cifar_alex/difference_between_coeffs/%d_vs_%d_different_coeffs.txt' % (inputIndex, closestImageIndex))
+    write_pixel_ranks_to_file(get_most_different_pixels(inputSymOut, closestSymOut), './result_images/differential_attributions/cifar_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranks.txt' % (inputIndex, closestImageIndex))
     #plt.imshow(image_based_on_pixel_ranks(get_most_different_pixels(inputSymOut, closestSymOut)))
     #plt.savefig('./result_images/differential_attributions/cifar_alex/difference_between_coeffs/Pixel_ranks/%d_vs_%d_different_coeffs_ranked' % (inputIndex, labelMatrix[closestImageIndex]))
     plt.close()
@@ -1846,13 +1846,13 @@ def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
     plt.figure()
     diffTimesInput = visualize_attrs_windowing(inputImage, get_most_different_pixels(inputSymOut, closestSymOut))
     
-    diffTimesInput.savefig('./result_images/differential_attributions/cifar_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.png' % (inputIndex, labelMatrix[closestImageIndex]))
+    diffTimesInput.save('./result_images/differential_attributions/cifar_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.png' % (inputIndex, closestImageIndex))
     attrs = gray_scale(get_most_different_pixels(inputSymOut, closestSymOut))
     attrs = abs(attrs)
     attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
-    vis = img*attrs
-    write_image_to_file(vis, './result_images/differential_attributions/cifar_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.txt' % (inputIndex, labelMatrix[closestImageIndex]))
-    write_pixel_ranks_to_file(vis, './result_images/differential_attributions/cifar_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (inputIndex, labelMatrix[closestImageIndex]))
+    vis = inputMatrix[inputIndex]*attrs
+    write_image_to_file(vis, './result_images/differential_attributions/cifar_alex/difference_times_input/%d_vs_%d_different_coeffs_times_in.txt' % (inputIndex, closestImageIndex))
+    write_pixel_ranks_to_file(vis, './result_images/differential_attributions/cifar_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (inputIndex, closestImageIndex))
     #plt.imshow(image_based_on_pixel_ranks(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0])))
     #plt.savefig('./result_images/differential_attributions/cifar_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
     plt.close()
