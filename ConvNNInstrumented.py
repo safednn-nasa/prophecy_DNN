@@ -1805,7 +1805,7 @@ def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
                 minDistance = distance
                 print distance, i
                 closestImageIndex = i
-            if distance == minDistance:
+            elif distance == minDistance:
                 print "Image", i, "has the same distance as our current closest"
     print "Our closest image is a", labelMatrix[closestImageIndex]
     print "It has a distance of", minDistance
@@ -2075,7 +2075,7 @@ reluFrameworkCheckpoint = "./tf_models_relu_framework"
 alexCheckpoint = "./tf_models_alex"
 gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ranks_0.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
-inputIndex = 7
+inputIndex = 3
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = np.multiply(255, inputMatrix)
