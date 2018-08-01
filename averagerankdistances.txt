@@ -1,0 +1,21 @@
+Average rank distances between resulting attributions*inputs for techniques:
+1. Coefficients based attribution technique:
+   i) Relu network 94167
+   ii) tf_relu_network 89265
+   iii) MNIST_DEEP 68258
+   iv) Alex-Net 76036
+2. tf.gradients based attribution technique:
+  i) tf_relu_network 80179 pre-softmax, 94473 post
+  ii) MNIST_DEEP 86488 pre-softmax, 105514 post
+  iii) Alex-Net 84987 pre-softmax, 102765 post
+  iv) Relu network 89863 pre-softmax, 97614 post
+3. Integrated gradients:
+  i) tf Relu network 84476
+  ii) MNIST_DEEP 76542
+  iii) Alex-Net 79494
+  iv) Relu network 93780
+4. Differential Attributions:
+   i) tf_relu_network 7334
+   ii) MNIST_DEEP 6104
+   iii) Alex-net 6113
+   iv) Relu network 7829
