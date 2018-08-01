@@ -1,0 +1,2 @@
+model_checkpoint_path: "mnist_relu_framework"
+all_model_checkpoint_paths: "mnist_relu_framework"
