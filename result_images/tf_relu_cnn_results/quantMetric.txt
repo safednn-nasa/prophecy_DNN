@@ -1,0 +1,24 @@
+Image 0
+Integrated Grad
+69700
+Grad Pre SoftMax
+81486
+Differential Grad
+7152
+Non Updated Coeffs
+93840
+**Differential with Non Updated Coeffs
+6952
+
+
+Image 4
+Integrated Grad
+69638
+Grad Pre SoftMax
+70190
+**Differential Grad
+3262
+Non Updated Coeffs
+72340
+Differential with Non Updated Coeffs
+3364
