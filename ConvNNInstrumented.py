@@ -388,7 +388,7 @@ def concolic_pool_layer_forward(X, size, stride = 1):
     h_out = (h-size)/stride + 1
     w_out = (w-size)/stride + 1
     out = np.zeros((h_out, w_out, d))
-    symOut = np.zeros((h_out, w_out, d, symInput.shape[3], symInput.shape[4]))
+    #symOut = np.zeros((h_out, w_out, d, symInput.shape[3], symInput.shape[4]))
     for i in range(h_out):
         for j in range(w_out):
             for k in range(d):
@@ -399,9 +399,9 @@ def concolic_pool_layer_forward(X, size, stride = 1):
                 max_row = max_idx/size
                 max_col = max_idx % size
                 #print symInput[i:i+size,j:j+size,k][max_row, max_col].shape
-                symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
+                #symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
                 out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
-    symInput = symOut
+    #symInput = symOut
     print ""
     return out
     
@@ -878,6 +878,7 @@ def do_all_layers_keras(inputNumber, outDir):
     denseIndex = 0
     poolIndex = 0
     activationIndex = 0
+    reluCounter = 0
     for layerType in layerTypeList:
         if layerType.lower().startswith("conv"):
             '''if convIndex == 1:
@@ -885,7 +886,7 @@ def do_all_layers_keras(inputNumber, outDir):
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
             # When using the keras file: padding of zero. When using mnist_deep: -1.
             temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            #symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
             #inspect_intermediate_output(temp)
             #inspect_sym_input()
@@ -894,6 +895,22 @@ def do_all_layers_keras(inputNumber, outDir):
             if activationType == 'relu':
                 np.set_printoptions(threshold=np.nan)
                 temp = relu_layer_forward(temp)
+                if reluCounter == 0:
+                    print "ReluCounter=0"
+                    a,b,c = temp.shape
+                    print type(temp)
+                    bitstr = list()
+                    for i1 in range(a):
+                        for i2 in range(b):
+                            for i3 in range(c):
+                                val = temp[i1,i2,i3]
+                                val = 1 if val > 0 else 0
+                                bitstr.append(val)
+                    reluCounter += 1
+                    with open('bitstr.txt','w') as f:
+                        s = str(bitstr)
+                        f.write(s[1:-1]+'\n')
+		#TO DO Export activations for the first layer
                 '''for i in range(temp.shape[0]):
                     for j in range(temp.shape[1]):
                         print temp[i, j]'''
@@ -914,23 +931,23 @@ def do_all_layers_keras(inputNumber, outDir):
         elif layerType.lower().startswith("dense"):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
             temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
-            symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            #symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             #inspect_sym_input(inputMatrix[inputNumber])
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
     #Coeffs, coeffs*input
     '''plt.figure()
     plt.imshow(inputMatrix[inputNumber][:,:,0])'''
-    plt.figure()
-    plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
-    plt.savefig('./result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d' % (outDir, outDir, inputNumber))
-    write_image_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d.txt' % (outDir, outDir, inputNumber))
-    plt.figure()
-    plt.imshow(normalize_to_255(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0])))
-    plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input'% (outDir, outDir, inputNumber))
-    write_image_to_file(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.txt'% (outDir, outDir, inputNumber))
-    plt.close()
-    plt.show()
+    #plt.figure()
+    #plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
+    #plt.savefig('./result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d' % (outDir, outDir, inputNumber))
+    #write_image_to_file(symInput[0,0,maxIndex], './result_images/coefficient_attributions/%s/coefficients/%s_sym_coeffs_%d.txt' % (outDir, outDir, inputNumber))
+    #plt.figure()
+    #plt.imshow(normalize_to_255(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0])))
+    #plt.savefig('./result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input'% (outDir, outDir, inputNumber))
+    #write_image_to_file(np.multiply(symInput[0,0,inputNumber], inputMatrix[inputNumber][:,:,0]), './result_images/coefficient_attributions/%s/coefficients_times_input/%s_sym_coeffs_%d_mult_input.txt'% (outDir, outDir, inputNumber))
+    #plt.close()
+    #plt.show()
     
     #Pixel ranks of the above
     plt.figure()
@@ -2077,10 +2094,10 @@ gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ran
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
 inputIndex = 3
 
-read_inputs_from_file(exampleInputsFile, 28, 28, True)
+#read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = np.multiply(255, inputMatrix)
-exampleInputMatrix = inputMatrix
-labelMatrix = np.arange(10)
+#exampleInputMatrix = inputMatrix
+#labelMatrix = np.arange(10)
 
 #do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
 
@@ -2106,7 +2123,7 @@ labelMatrix = np.arange(10)
 #init_3d_symInput(32, 32)
 #kerasResult = do_all_layers_keras_3d(inputIndex, 'cifar_alex')
 
-generate_alex_net_cifar_differential_attributions(cifarInputsFile, inputIndex)
+#generate_alex_net_cifar_differential_attributions(cifarInputsFile, inputIndex)
 
 #for i in range(10):
 #generate_alex_net_cifar_gradients(i)
@@ -2120,10 +2137,12 @@ generate_alex_net_cifar_differential_attributions(cifarInputsFile, inputIndex)
 #init(exampleInputsFile, weightsFile, 28, 28, True)
 #do_all_layers(inputIndex, 0, 1)
 
-#Get coefficients for mnist images using tf_relu or mnist_deep networks. Read weights from correct meta file to choose between them.. 
-#read_weights_from_saved_tf_model(reluMetaFile, ckpoint=relu=Checkpoint)
-#init(exampleInputsFile, weightsFile, 28, 28, True)
-#kerasResult = do_all_layers_keras(inputIndex, 'relu_network')
+#Get coefficients for mnist images using mnist_deep networks. Read weights from correct meta file to choose between them.. 
+read_weights_from_saved_tf_model(metaFile, checkpoint)
+#Parse mnist_train.csv file
+init(inputsFile, weightsFile, 28, 28)
+inputNumber = 0
+kerasResult = do_all_layers_keras(inputIndex, 'convnn_relu_exp')
 
 #Get coefficients for mnist images using alexnet.
 #read_weights_from_h5_file(h5File)
