@@ -662,15 +662,19 @@ def visualize_attrs_windowing(img, attrs, ptile=99):
     show_img(pil_img(vis))
     return pil_img(vis)
     
-def do_all_layers_keras(inputNumber, outDir):
+def do_all_layers_keras(inputNumber, outDir, same = list()):
     global symInput, convWeightMatrix, denseWeightMatrix
     temp = inputMatrix[inputNumber]
     convIndex = 0
     denseIndex = 0
     poolIndex = 0
     activationIndex = 0
-    reluCounter = 0
+    #reluCounter = 0
+    layerCount = 0
+    flageq = 1
     for layerType in layerTypeList:
+        layerCount += 1
+        print(layerType)
         if layerType.lower().startswith("conv"):
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
             # When using the keras file: padding of zero. When using mnist_deep: -1.
@@ -684,36 +688,55 @@ def do_all_layers_keras(inputNumber, outDir):
             if activationType == 'relu':
                 np.set_printoptions(threshold=np.nan)
                 temp = relu_layer_forward(temp)
-                if reluCounter == 0:
-                    print("ReluCounter=0")
-                    a,b,c = temp.shape
-                    print(type(temp))
-                    bitstr = list()
-                    for i1 in range(a):
-                        for i2 in range(b):
-                            for i3 in range(c):
-                                val = temp[i1,i2,i3]
-                                val = 1 if val > 0 else 0
-                                bitstr.append(val)
-                    reluCounter += 1
-                    with open('bitstr.txt','w') as f:
-                        s = str(bitstr)
-                        f.write(s[1:-1]+'\n')
-		#TO DO Export activations for the first layer
-                #for i in range(temp.shape[0]):
-                 #   for j in range(temp.shape[1]):
-                  #      print temp[i, j]'''
-                #for i in range(temp.shape[2]):
-                 #   print temp[:, :, i]'''
-                #symInput = relu_layer_forward(symInput)
+                #symInput = sym_conv_relu(symInput, temp)
+                #if reluCounter == 0:
+                   # print("ReluCounter=0")
+                a,b,c = temp.shape
+                bitstr = list()
+                print(type(temp))
+                bitstr = list()
+                for i1 in range(a):
+                     for i2 in range(b):
+                         for i3 in range(c):
+                             val = temp[i1,i2,i3]
+                             val = 1 if val > 0 else 0
+                             bitstr.append(val)
+                  #  reluCounter += 1
+                if (flageq == 0):
+                    break
+                
+                filenm = ('relu_' + str(layerCount) + '.txt')
+                with open(filenm) as f:
+                     linesR = f.readlines()
+                     cnt = 0
+                     for ir in range(len(linesR)):
+                         for jr in range(len(linesR[ir])):
+                            # print("line:")
+                            # print(linesR[ir][jr])
+                            # print("bitstr:")
+                            # if (cnt < len(bitstr)):
+                             #   print(bitstr[cnt])
+                             if (linesR[ir][jr] == ','): 
+                                 continue
+                             if (linesR[ir][jr] == ' '): 
+                                 continue
+                             if (linesR[ir][jr] == '\n'): 
+                                 continue
+                             lineInt = np.int64(linesR[ir][jr])
+                             bitInt = np.int64(bitstr[cnt])
+                             if (lineInt != bitInt):
+                                flageq = 0
+                                print("Not Equal")
+                                break
+                             cnt += 1
+
+                     
+                #with open(filenm,'w') as f:
+                 #    s = str(bitstr)
+                  #   f.write(s[1:-1]+'\n')
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
-            #inspect_intermediate_output(temp)
-            #inspect_sym_input()
-            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
             temp = concolic_pool_layer_forward(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
-            #inspect_intermediate_output(temp)
-            #inspect_sym_input()
             poolIndex = poolIndex + 1 
         elif layerType.lower().startswith("flatten"):
             pass
@@ -723,6 +746,12 @@ def do_all_layers_keras(inputNumber, outDir):
             #symInput = sym_conv_layer_forward(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             #inspect_sym_input(inputMatrix[inputNumber])
             denseIndex = denseIndex + 1
+    
+    if (flageq == 0):
+        return -1
+
+    if (flageq == 1):
+        same.append(inputNumber)
     maxIndex = classify_ineff(temp);
     #Coeffs, coeffs*input
     if maxIndex != labelMatrix[inputNumber]:
@@ -797,8 +826,14 @@ inputIndex = 3
 read_weights_from_saved_tf_model(metaFile, checkpoint)
 #Parse mnist_train.csv file
 init(inputsFile, weightsFile, 28, 28)
+same = list()
 inputNumber = 0
-kerasResult = do_all_layers_keras(inputNumber, 'convnn_relu_exp')
+for inputNumber in range(1, 1000):
+    kerasResult = do_all_layers_keras(inputNumber, 'convnn_relu_exp', same)
+
+print("SAME:")
+for ix in range(len(same)):
+    print(same[ix])
 
 #Get coefficients for mnist images using alexnet.
 #read_weights_from_h5_file(h5File)
