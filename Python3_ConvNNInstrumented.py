@@ -263,14 +263,14 @@ def relu_layer_forward(x):
     print("")
 
 def sym_conv_relu(coeffs, concrete):
-    #print("Beginning sym_relu layer")
+    print("Beginning sym_relu layer")
     for i in range(concrete.shape[0]): # Need to make this generic for labels != 10
         for j in range(concrete.shape[1]):
             for k in range(concrete.shape[2]):
                 if (concrete[i,j,k] <= 0.0):
                     coeffs[i,j,k] = np.zeros(coeffs[i,j,k].shape)
                     
-   # print ""
+    print("")
     return coeffs;
 
 def pool_layer_forward(X, size, stride = 1):
@@ -323,7 +323,7 @@ def concolic_pool_layer_sym(X, size, stride = 1):
     print("After")
     print(h_out,w_out,d)
     out = np.zeros((h_out, w_out, d))
-    
+    symOut = np.zeros((h_out, w_out, d, symInput.shape[3], symInput.shape[4]))
     for i in range(h_out):
         for j in range(w_out):
             for k in range(d):
@@ -331,8 +331,8 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                 colIndex = j*stride
                 #print X[rowIndex:rowIndex+size,colIndex:colIndex+size,k], X[owIndex:rowIndex+size,j:j+size,k].max()
                 max_idx = np.argmax(X[rowIndex:rowIndex+size,colIndex:colIndex+size,k])
-                max_row = max_idx/size
-                max_col = max_idx % size
+                max_row = np.int64(max_idx/size)
+                max_col = np.int64(max_idx % size)
                 #print symInput[i:i+size,j:j+size,k][max_row, max_col].shape
                 symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
                 out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
@@ -404,7 +404,7 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
     else:
         n_filters, d_filter, h_filter, w_filter = filters.shape
     if padding == -1:
-        padding = (h_filter - 1)/2
+        padding = int((h_filter - 1)/2)
     h_out = (h_prev - h_filter + 2 * padding) / stride + 1
     w_out = (w_prev - w_filter + 2 * padding) / stride + 1
     input_padded = np.pad(input,((padding, padding),(padding, padding),(0,0),(0,0),(0,0)),mode='constant')
@@ -732,12 +732,12 @@ def do_all_layers_keras(inputNumber, outDir):
                 np.set_printoptions(threshold=np.nan)
                 temp = relu_layer_forward(temp)
                 #symInput = sym_conv_relu(symInput, temp)
-		#TO DO Export activations for the first layer
+		        #TO DO Export activations for the first layer
                 #for i in range(temp.shape[0]):
                  #   for j in range(temp.shape[1]):
-                  #      print temp[i, j]'''
+                  #      print temp[i, j]
                 #for i in range(temp.shape[2]):
-                 #   print temp[:, :, i]'''
+                 #   print temp[:, :, i]
                 #symInput = relu_layer_forward(symInput)
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
@@ -775,7 +775,7 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
             # When using the keras file: padding of zero. When using mnist_deep: -1.
             temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
             convIndex = convIndex + 1
             #inspect_intermediate_output(temp)
             #inspect_sym_input()
@@ -785,7 +785,7 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
                 np.set_printoptions(threshold=np.nan)
                 temp = relu_layer_forward(temp)
                 symInput = sym_conv_relu(symInput, temp)
-		#TO DO Export activations for the first layer
+		        #TO DO Export activations for the first layer
                 #for i in range(temp.shape[0]):
                  #   for j in range(temp.shape[1]):
                   #      print temp[i, j]'''
@@ -813,6 +813,11 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
     #Coeffs, coeffs*input
     #if maxIndex != labelMatrix[inputNumber]:
     #    print("Error, correct label is", labelMatrix[inputNumber])
+    
+    plt.figure()
+    plt.imshow(np.multiply(inputMatrix[inputNumber][:,:,0], symInput[0,0,maxIndex]))
+    plt.show()
+    
     return maxIndex
 
 
@@ -939,40 +944,40 @@ gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ran
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
 
 
-#inputIndex = 3
+inputIndex = 0
 # Read Inputs from example_10.txt which has 10 inputs belonging to  labels 0-9
 #read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = inputMatrix
 #labelMatrix = np.arange(10)
 
 #Concrete exec for 1 input for mnist images using tf_relu or mnist_deep networks. 
-#Read weights from correct meta file to choose between them.. 
+#Read weights from correct meta file to choose between them.
 #read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
 #init(exampleInputsFile, weightsFile, 28, 28, True)
 #kerasResult = do_all_layers_keras(inputIndex, 'mnist_deep')
 
 
 #Get coefficients for 1 input for mnist images using tf_relu or mnist_deep networks. 
-#Read weights from correct meta file to choose between them.. 
-#read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
-#init(exampleInputsFile, weightsFile, 28, 28, True)
-#kerasResult = do_all_layers_keras_coeffs(inputIndex, 'mnist_deep')
+#Read weights from correct meta file to choose between them. 
+read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
+init(exampleInputsFile, weightsFile, 28, 28, True)
+kerasResult = do_all_layers_keras_coeffs(inputIndex, 'mnist_deep')
 
 #Get decisions (collect =1) or compare with other inputs (collect=0) for mnist images using mnist_deep network. Read weights from correct meta file to choose between them. 
-read_weights_from_saved_tf_model(metaFile, checkpoint)
+#read_weights_from_saved_tf_model(metaFile, checkpoint)
 #Parse mnist_train.csv file
-init(inputsFile, weightsFile, 28, 28)
-same = list()
-inputNumber = 1
-collect = 0
-if (collect == 0):
-    for inputNumber in range(0, 1000):
-        kerasResult = do_all_layers_keras_dec(inputNumber, collect, 'convnn_relu_exp', same)
-    print("SAME:")
-    for ix in range(len(same)):
-        print(same[ix])
-if (collect == 1):
-    kerasResult = do_all_layers_keras_dec(inputNumber, collect, 'convnn_relu_exp', same)
+#init(inputsFile, weightsFile, 28, 28)
+#same = list()
+#inputNumber = 1
+#collect = 0
+#if (collect == 0):
+#    for inputNumber in range(0, 1000):
+#        kerasResult = do_all_layers_keras_dec(inputNumber, collect, 'convnn_relu_exp', same)
+#    print("SAME:")
+#    for ix in range(len(same)):
+#        print(same[ix])
+#if (collect == 1):
+#    kerasResult = do_all_layers_keras_dec(inputNumber, collect, 'convnn_relu_exp', same)
    
 
 
