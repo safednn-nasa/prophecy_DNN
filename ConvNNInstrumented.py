@@ -906,8 +906,8 @@ def do_all_layers_keras(inputNumber, outDir):
                 continue'''
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
             # When using the keras file: padding of zero. When using mnist_deep: -1.
-            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], -1, keras=True)
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
             #inspect_intermediate_output(temp)
             #inspect_sym_input()
@@ -940,11 +940,12 @@ def do_all_layers_keras(inputNumber, outDir):
             #inspect_sym_input(inputMatrix[inputNumber])
             denseIndex = denseIndex + 1
     #To generate the "wrong" coeffs for a given input, update these lines.
-    '''maxIndex = 2
-    write_image_to_file(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0]), './result_images/corrected_coefficient_attributions/class_2_coeffs_for_0_mult_input.txt')
+    '''maxIndex = 9
+    write_image_to_file(symInput[0,0,maxIndex], './result_images/corrected_coefficient_attributions/class_%d_coeffs_for_%d.txt'% (maxIndex, inputNumber))
     plt.figure()
-    plt.imshow(normalize_to_255(np.multiply(symInput[0,0,maxIndex], inputMatrix[inputNumber][:,:,0])))
-    plt.savefig('./result_images/corrected_coefficient_attributions/class_2_coeffs_for_0_mult_input')'''
+    plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
+    plt.savefig('./result_images/corrected_coefficient_attributions/class_%d_coeffs_for_%d'% (maxIndex, inputNumber))
+    return'''
     
     maxIndex = classify_ineff(temp);
     #Coeffs, coeffs*input
@@ -976,7 +977,7 @@ def do_all_layers_keras(inputNumber, outDir):
         print "Error, correct label is", labelMatrix[inputNumber]
     return maxIndex
     
-def do_all_layers_keras_for_image(squareImage):
+def do_all_layers_keras_for_image(squareImage, padding=0):
     global symInput, convWeightMatrix, denseWeightMatrix
     temp = squareImage
     convIndex = 0
@@ -988,8 +989,8 @@ def do_all_layers_keras_for_image(squareImage):
             '''if convIndex == 1:
                 continue'''
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
-            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], padding, keras=True)
+            symInput = sym_conv_layer_forward(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], padding, keras=True)
             convIndex = convIndex + 1
             #inspect_intermediate_output(temp)
             #inspect_sym_input()
@@ -1319,6 +1320,119 @@ def find_closest_input_with_different_label(inputsFile, metaFile, inputIndex=-1,
     write_image_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/Differential_attributions/tf_relu_network/difference_times_input/%d_vs_%d_different_coeffs_times_in.txt' % (correctLabel, labelMatrix[closestImageIndex]))
     plt.savefig('./result_images/Differential_attributions/tf_relu_network/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
     write_pixel_ranks_to_file(np.multiply(get_most_different_pixels(inputSymOut, closestSymOut), inputImage[:,:,0]), './result_images/Differential_attributions/tf_relu_network/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    plt.close()
+    #plt.show()
+    return closestImageIndex
+    
+def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-1, ckpoint='./tf_models'):
+    '''Generates differential analyses, either on a random input chosen from inputsFile if inputIndex == -1, or on a file from exampleInputMatrix determined by inputIndex.'''
+    read_weights_from_saved_tf_model(metaFile, ckpoint=ckpoint)
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    
+    inputImage = None
+    correctLabel = -1
+    if inputIndex == -1:
+        inputIndex = randint(0, len(inputMatrix))
+        inputImage = inputMatrix[inputIndex]
+        correctLabel = labelMatrix[inputIndex]
+    else:
+        inputImage = exampleInputMatrix[inputIndex]
+        correctLabel = inputIndex
+    print "Our image is a", correctLabel
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph(metaFile)
+        imported_graph.restore(sess, tf.train.latest_checkpoint(ckpoint))
+        graph = tf.get_default_graph()
+        
+        x = graph.get_tensor_by_name("import/x:0")
+        keep_prob = graph.get_tensor_by_name("import/keep_prob:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        y_conv = graph.get_tensor_by_name("import/y_conv:0")
+        outputIndex = tf.placeholder(np.int32)
+        specified_gradients = tf.gradients(y_conv[0,outputIndex], x)
+        
+        inputResults = np.empty(10, dtype=list)
+        for i in range(10):
+            in_image = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
+            in_data = np.ndarray.flatten(in_image)
+            feed_dict = {x: [in_data], keep_prob: 1.0, outputIndex: i}
+            #feed_dict = {x:[in_data], outputIndex: j} #tf_relu version
+            input_result = np.array(sess.run(specified_gradients, feed_dict))
+            #print input_result
+            inputResults[i] = input_result
+        
+        for i in range(len(inputMatrix)):
+            if labelMatrix[i] == correctLabel:
+                continue
+            distance = 0
+            im_image = normalize_to_1(inputMatrix[i][:,:,0])
+            im_data = np.ndarray.flatten(im_image)
+            for j in range(10):
+                feed_dict = {x: [im_data], keep_prob: 1.0, outputIndex: j}
+                #feed_dict = {x:[im_data], outputIndex: j} #tf_relu version
+                image_result = np.array(sess.run(specified_gradients, feed_dict))
+                #print image_result
+                distance += manhattan_distance(inputResults[j], image_result) #compare gradients
+            distance = distance/10
+            if distance < minDistance:
+                minDistance = distance
+                closestImageIndex = i
+            elif distance == minDistance:
+                print "Image", i, "has the same distance as our current closest"
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    print "Closest image index:", closestImageIndex
+    '''plt.figure()
+    plt.imshow(inputImage[:,:,0])
+    plt.show()'''
+    plt.figure()
+    plt.imshow(inputMatrix[closestImageIndex][:,:,0])
+    plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/closest_gradients_images/%d\'s_closest_image' % correctLabel) # Just for reference
+    plt.close()
+    
+    #read_weights_from_saved_tf_model(metaFile)
+    
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    inputResult = do_all_layers_keras_for_image(inputImage, padding=-1)
+    inputSymResults = symInput
+    if inputResult != correctLabel:
+        print "Error: incorrect prediction, correct label is", correctLabel
+        #return -1
+        inputSymOut = symInput[0,0,correctLabel]
+    else:
+        inputSymOut = symInput[0,0,inputResult]
+    
+    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    closestResult = do_all_layers_keras_for_image(inputMatrix[closestImageIndex], padding=-1)
+    imageSymResults = symInput
+    if closestResult != labelMatrix[closestImageIndex]:
+        print "Error: incorrect prediction, correct label is", labelMatrix[closestImageIndex]
+        #return -1
+        closestSymOut = symInput[0,0,labelMatrix[closestImageIndex]]
+    else:
+        closestSymOut = symInput[0,0,closestResult]
+    
+    #The differential analysis. (grad of node1 * value - grad' of node1 * value') + (grad' of node2 * value' - grad of node2 * value), where grad and value are for inp1 and grad' and value' are for inp2. 
+    #value = inputImage, value' = inputMatrix[closestImageIndex][:,:,0]
+    #grad of node1 = inputSymOut (or inputSymResults[0,0,inputResult])
+    #grad' of of node2 = closestSymOut (or imageSymResults[0,0,closestResult])
+    #grad of node2 = inputSymResults[0,0,labelMatrix[closestImageIndex] (or closestResult)], 
+    #grad' of node1 = imageSymResults[0,0,correctLabel (or inputResult)]
+    closestImage = inputMatrix[closestImageIndex][:,:,0]
+    plt.figure()
+    term1 = np.subtract(np.multiply(inputSymOut, inputImage[:,:,0]), np.multiply(imageSymResults[0,0,inputResult], closestImage))
+    term2 = np.subtract(np.multiply(closestSymOut, closestImage), np.multiply(inputSymResults[0,0,closestResult], inputImage[:,:,0]))
+    attribution = np.add(term1, term2)
+    plt.imshow(normalize_to_255(attribution))
+    plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/%d_vs_%d_important_coeffs' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_image_to_file(attribution, './result_images/differential_attributions/multi_index_analysis/mnist_deep/%d_vs_%d_important_coeffs.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(attribution, './result_images/differential_attributions/multi_index_analysis/mnist_deep/Pixel_ranks/%d_vs_%d_important_coeffs_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    #plt.imshow(image_based_on_pixel_ranks(attribution))
+    #plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/Pixel_ranks/%d_vs_%d_different_coeffs_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
     plt.close()
     #plt.show()
     return closestImageIndex
@@ -2264,7 +2378,7 @@ reluFrameworkCheckpoint = "./tf_models_relu_framework"
 alexCheckpoint = "./tf_models_alex"
 gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ranks_0.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
-inputIndex = 0
+inputIndex = 9
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = np.multiply(255, inputMatrix)
@@ -2275,6 +2389,7 @@ labelMatrix = np.arange(10)
 
 #Use this one for differential analysis of mnist_deep and tf_relu networks. Gradient analysis of mnist_deep (and tf_relu, if you really need it) is done in test.py/tf_testing_3()
 #find_closest_input_with_different_label(inputsFile, reluMetaFile, inputIndex, ckpoint=reluCheckpoint)
+find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex, ckpoint=checkpoint)
 #generate_gradient_differential(inputsFile, metaFile, inputIndex, ckpoint=checkpoint, outputDir='mnist_deep')
 
 #Use these for differential and gradient analysis of mnist_alex network.
@@ -2312,9 +2427,9 @@ labelMatrix = np.arange(10)
 #do_all_layers(inputIndex, 0, 1)
 
 #Get coefficients for mnist images using tf_relu or mnist_deep networks. Read weights from correct meta file to choose between them.. 
-read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
-init(exampleInputsFile, weightsFile, 28, 28, True)
-kerasResult = do_all_layers_keras(inputIndex, 'mnist_deep')
+#read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
+#init(exampleInputsFile, weightsFile, 28, 28, True)
+#kerasResult = do_all_layers_keras(inputIndex, 'mnist_deep')
 
 #Get coefficients for mnist images using alexnet.
 #read_weights_from_h5_file(h5File)
