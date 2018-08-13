@@ -747,6 +747,7 @@ def normalize_to_255(x):
     temp = x.flatten()
     maximum = np.amax(temp)
     minimum = np.amin(temp)
+    #print minimum, maximum
     norm = np.multiply(np.array([(i - minimum) / (maximum - minimum) for i in temp]), 255)
     '''for i in range (len(temp)):
         temp[i] = temp[i]/maximum * 255'''
@@ -1004,7 +1005,7 @@ def do_all_layers_keras_for_image(squareImage, padding=0):
                         print temp[i, j]'''
                 '''for i in range(temp.shape[2]):
                     print temp[:, :, i]'''
-                #symInput = relu_layer_forward(symInput)
+                symInput = sym_conv_relu(symInput, temp)
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
             #inspect_intermediate_output(temp)
@@ -1186,7 +1187,8 @@ def manhattan_distance(image0, image1):
     total = 0
     image0flat = image0.flatten()
     image1flat = image1.flatten()
-    for i in range(len(image0)):
+    #print image0flat.shape, image1flat.shape
+    for i in range(len(image0flat)):
         total += abs(image0flat[i] - image1flat[i])
     return total
     
@@ -1355,19 +1357,24 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
         outputIndex = tf.placeholder(np.int32)
         specified_gradients = tf.gradients(y_conv[0,outputIndex], x)
         
-        inputResults = np.empty(10, dtype=list)
+        inputGradients = np.empty(10, dtype=list)
+        inputResult = -1
+        in_image = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
+        in_data = np.ndarray.flatten(in_image)
         for i in range(10):
-            in_image = np.array(normalize_to_1(inputImage[:,:,0]), dtype=np.float32)
-            in_data = np.ndarray.flatten(in_image)
             feed_dict = {x: [in_data], keep_prob: 1.0, outputIndex: i}
             #feed_dict = {x:[in_data], outputIndex: j} #tf_relu version
             input_result = np.array(sess.run(specified_gradients, feed_dict))
             #print input_result
-            inputResults[i] = input_result
+            inputGradients[i] = input_result.reshape((28,28))
+        inputResult = np.argmax(y_conv.eval(feed_dict))
+        print "Prediction:", inputResult
         
+        closestResult = -1
         for i in range(len(inputMatrix)):
             if labelMatrix[i] == correctLabel:
                 continue
+            imageGradients = np.empty(10, dtype=list)
             distance = 0
             im_image = normalize_to_1(inputMatrix[i][:,:,0])
             im_data = np.ndarray.flatten(im_image)
@@ -1376,16 +1383,20 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
                 #feed_dict = {x:[im_data], outputIndex: j} #tf_relu version
                 image_result = np.array(sess.run(specified_gradients, feed_dict))
                 #print image_result
-                distance += manhattan_distance(inputResults[j], image_result) #compare gradients
+                imageGradients[j] = image_result.reshape((28,28))
+                distance += manhattan_distance(inputGradients[j], imageGradients[j]) #compare gradients
             distance = distance/10
             if distance < minDistance:
                 minDistance = distance
                 closestImageIndex = i
+                closestGradients = imageGradients
+                closestResult = np.argmax(y_conv.eval(feed_dict))
             elif distance == minDistance:
                 print "Image", i, "has the same distance as our current closest"
     print "Our closest image is a", labelMatrix[closestImageIndex]
     print "It has a distance of", minDistance
     print "Closest image index:", closestImageIndex
+    print "Closest image prediction:", closestResult
     '''plt.figure()
     plt.imshow(inputImage[:,:,0])
     plt.show()'''
@@ -1396,7 +1407,7 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
     
     #read_weights_from_saved_tf_model(metaFile)
     
-    init_symInput(inputImage.shape[0],inputImage.shape[1])
+    '''init_symInput(inputImage.shape[0],inputImage.shape[1])
     inputResult = do_all_layers_keras_for_image(inputImage, padding=-1)
     inputSymResults = symInput
     if inputResult != correctLabel:
@@ -1414,19 +1425,31 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
         #return -1
         closestSymOut = symInput[0,0,labelMatrix[closestImageIndex]]
     else:
-        closestSymOut = symInput[0,0,closestResult]
+        closestSymOut = symInput[0,0,closestResult]'''
     
     #The differential analysis. (grad of node1 * value - grad' of node1 * value') + (grad' of node2 * value' - grad of node2 * value), where grad and value are for inp1 and grad' and value' are for inp2. 
     #value = inputImage, value' = inputMatrix[closestImageIndex][:,:,0]
-    #grad of node1 = inputSymOut (or inputSymResults[0,0,inputResult])
-    #grad' of of node2 = closestSymOut (or imageSymResults[0,0,closestResult])
-    #grad of node2 = inputSymResults[0,0,labelMatrix[closestImageIndex] (or closestResult)], 
-    #grad' of node1 = imageSymResults[0,0,correctLabel (or inputResult)]
-    closestImage = inputMatrix[closestImageIndex][:,:,0]
+    #grad of node1 = inputSymOut (or inputGradients[inputResult])
+    #grad' of of node2 = closestSymOut (or closestGradients[closestResult])
+    #grad of node2 = inputGradients[labelMatrix[closestImageIndex] (or closestResult)], 
+    #grad' of node1 = closestGradients[correctLabel (or inputResult)]
+    closestImage = inputMatrix[closestImageIndex]
+    plt.imshow(inputImage[:,:,0])
+    plt.show()
+    plt.imshow(closestImage[:,:,0])
+    plt.show()
     plt.figure()
-    term1 = np.subtract(np.multiply(inputSymOut, inputImage[:,:,0]), np.multiply(imageSymResults[0,0,inputResult], closestImage))
-    term2 = np.subtract(np.multiply(closestSymOut, closestImage), np.multiply(inputSymResults[0,0,closestResult], inputImage[:,:,0]))
+    plt.imshow(inputGradients[inputResult])
+    plt.show()
+    term1 = np.subtract(np.multiply(inputGradients[inputResult], inputImage[:,:,0]), np.multiply(closestGradients[inputResult], closestImage[:,:,0]))
+    plt.imshow(term1)
+    plt.show()
+    term2 = np.subtract(np.multiply(closestGradients[closestResult], closestImage[:,:,0]), np.multiply(inputGradients[closestResult], inputImage[:,:,0]))
+    plt.imshow(term2)
+    plt.show()
     attribution = np.add(term1, term2)
+    plt.imshow(attribution)
+    plt.show()
     plt.imshow(normalize_to_255(attribution))
     plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/%d_vs_%d_important_coeffs' % (correctLabel, labelMatrix[closestImageIndex]))
     write_image_to_file(attribution, './result_images/differential_attributions/multi_index_analysis/mnist_deep/%d_vs_%d_important_coeffs.txt' % (correctLabel, labelMatrix[closestImageIndex]))
@@ -2378,7 +2401,7 @@ reluFrameworkCheckpoint = "./tf_models_relu_framework"
 alexCheckpoint = "./tf_models_alex"
 gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ranks_0.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
-inputIndex = 9
+inputIndex = 4
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = np.multiply(255, inputMatrix)
