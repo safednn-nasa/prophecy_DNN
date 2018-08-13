@@ -1441,10 +1441,17 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
     plt.figure()
     plt.imshow(inputGradients[inputResult])
     plt.show()
-    term1 = np.subtract(np.multiply(inputGradients[inputResult], inputImage[:,:,0]), np.multiply(closestGradients[inputResult], closestImage[:,:,0]))
+    plt.figure()
+    plt.imshow(closestGradients[closestResult])
+    plt.show()
+    term11 = np.multiply(inputGradients[inputResult], inputImage[:,:,0])
+    term12 = np.multiply(closestGradients[inputResult], closestImage[:,:,0])
+    term21 = np.multiply(closestGradients[closestResult], closestImage[:,:,0])
+    term22 = np.multiply(inputGradients[closestResult], inputImage[:,:,0])
+    term1 = np.subtract(term11, term12)
     plt.imshow(term1)
     plt.show()
-    term2 = np.subtract(np.multiply(closestGradients[closestResult], closestImage[:,:,0]), np.multiply(inputGradients[closestResult], inputImage[:,:,0]))
+    term2 = np.subtract(term21, term22)
     plt.imshow(term2)
     plt.show()
     attribution = np.add(term1, term2)
@@ -2401,7 +2408,7 @@ reluFrameworkCheckpoint = "./tf_models_relu_framework"
 alexCheckpoint = "./tf_models_alex"
 gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ranks_0.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
-inputIndex = 4
+inputIndex = 9
 
 read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = np.multiply(255, inputMatrix)
