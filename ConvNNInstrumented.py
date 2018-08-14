@@ -1385,6 +1385,8 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
                 #print image_result
                 imageGradients[j] = image_result.reshape((28,28))
                 distance += manhattan_distance(inputGradients[j], imageGradients[j]) #compare gradients
+            if np.argmax(y_conv.eval(feed_dict)) != labelMatrix[i]:
+                continue
             distance = distance/10
             if distance < minDistance:
                 minDistance = distance
@@ -1434,27 +1436,18 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
     #grad of node2 = inputGradients[labelMatrix[closestImageIndex] (or closestResult)], 
     #grad' of node1 = closestGradients[correctLabel (or inputResult)]
     closestImage = inputMatrix[closestImageIndex]
-    plt.imshow(inputImage[:,:,0])
-    plt.show()
-    plt.imshow(closestImage[:,:,0])
-    plt.show()
-    plt.figure()
-    plt.imshow(inputGradients[inputResult])
-    plt.show()
-    plt.figure()
-    plt.imshow(closestGradients[closestResult])
-    plt.show()
+    inputImage = normalize_to_255(inputImage)
     term11 = np.multiply(inputGradients[inputResult], inputImage[:,:,0])
     term12 = np.multiply(closestGradients[inputResult], closestImage[:,:,0])
     term21 = np.multiply(closestGradients[closestResult], closestImage[:,:,0])
     term22 = np.multiply(inputGradients[closestResult], inputImage[:,:,0])
-    term1 = np.subtract(term11, term12)
+    term1 = term11 - term12
     plt.imshow(term1)
     plt.show()
-    term2 = np.subtract(term21, term22)
+    term2 = term21 - term22
     plt.imshow(term2)
     plt.show()
-    attribution = np.add(term1, term2)
+    attribution = term1 + term2
     plt.imshow(attribution)
     plt.show()
     plt.imshow(normalize_to_255(attribution))
@@ -1463,6 +1456,21 @@ def find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex=-
     write_pixel_ranks_to_file(attribution, './result_images/differential_attributions/multi_index_analysis/mnist_deep/Pixel_ranks/%d_vs_%d_important_coeffs_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
     #plt.imshow(image_based_on_pixel_ranks(attribution))
     #plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/Pixel_ranks/%d_vs_%d_different_coeffs_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
+    
+    attributionTimesIn = np.multiply(normalize_to_255(attribution), inputImage[:,:,0])
+    plt.imshow(attributionTimesIn)
+    plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/times_in/%d_vs_%d_important_coeffs_times_in' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_image_to_file(attributionTimesIn, './result_images/differential_attributions/multi_index_analysis/mnist_deep/times_in/%d_vs_%d_important_coeffs_times_in.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(attributionTimesIn, './result_images/differential_attributions/multi_index_analysis/mnist_deep/times_in/Pixel_ranks/%d_vs_%d_important_coeffs_times_in_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    
+    #(grad of label node - grad' of label node) + (grad' of other_label node - grad of other_label node)
+    term1 = np.subtract(inputGradients[inputResult], closestGradients[inputResult])
+    term2 = np.subtract(closestGradients[closestResult], inputGradients[closestResult])
+    attribution2 = np.multiply(np.add(term1, term2), inputImage[:,:,0])
+    plt.imshow(attribution2)
+    plt.savefig('./result_images/differential_attributions/multi_index_analysis/mnist_deep/just_grads/%d_vs_%d_important_coeffs_times_in' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_image_to_file(attribution2, './result_images/differential_attributions/multi_index_analysis/mnist_deep/just_grads/%d_vs_%d_important_coeffs_times_in.txt' % (correctLabel, labelMatrix[closestImageIndex]))
+    write_pixel_ranks_to_file(attribution2, './result_images/differential_attributions/multi_index_analysis/mnist_deep/just_grads/Pixel_ranks/%d_vs_%d_important_coeffs_times_in_ranks.txt' % (correctLabel, labelMatrix[closestImageIndex]))
     plt.close()
     #plt.show()
     return closestImageIndex
