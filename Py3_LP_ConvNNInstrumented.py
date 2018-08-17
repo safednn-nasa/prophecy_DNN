@@ -346,12 +346,12 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                     for col_ind in range(colIndex,colIndex+size):
                         if row_ind == max_row and col_ind == max_col:
                             continue
-                        bias_low = temp[row_ind][col_ind][k] - sum([symInput[row_ind][col_ind][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
-                        l = [(symInput[row_max][col_max][k][x][y]-symInput[row_ind][col_ind][k][x][y])*pulpInput[x][y] for y in range(col_len) for x in range(row_len)]
-                        print("Setting F({},{}) - F({},{})".format(max_row,max_col,row_ind,col_ind))
-                        print("l: {}".format(l))
-                        print("bias_low - bias_max: {}".format(bias_low - bias_max))
-                        prob += (pulp.lpSum(l) >= (bias_low - bias_max))
+                        bias_low = X[row_ind][col_ind][k] - sum([symInput[row_ind][col_ind][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
+                        l = [(symInput[max_row][max_col][k][x][y]-symInput[row_ind][col_ind][k][x][y])*pulpInput[x][y] for y in range(col_len) for x in range(row_len)]
+                        #print("Setting F({},{}) - F({},{})".format(max_row,max_col,row_ind,col_ind))
+                        #print("l: {}".format(l))
+                        #print("bias_low - bias_max: {}".format(bias_low - bias_max))
+                        prob += (pulp.lpSum(l) >= (bias_low - bias_max)),""
 
                 #Max_index denotes the which index is greater than the others within the range size
                 # We can obtain this info and add the symInput result to problem
@@ -806,7 +806,9 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
     for i,l in enumerate(pulpInput):
         for j,x in enumerate(l):
             name = 'pixel_{},{}'.format(i,j)
-            pulpInput[i][j] = pulp.LpVariable(name,0.0,1.0,'Continuous')
+            pulpInput[i][j] = pulp.LpVariable(name, lowBound=0.0, upBound=1.0, cat='Continuous')
+            prob += pulpInput[i][j] >= 0.0, "LowBounds_{},{}".format(i,j)
+            prob += pulpInput[i][j] <= 1.0, "UpBounds_{},{}".format(i,j)
     
     for layerType in layerTypeList:
         if layerType.lower().startswith("conv"):
@@ -844,9 +846,9 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
                             l = [symInput[i][j][k][x][y]*pulpInput[x][y] for y in range(dims2[4]) for x in range(dims2[3])]
                             #print("constraints:{}".format(l))
                             if greater_than:
-                                prob += (pulp.lpSum(l) >= -bias)
+                                prob += (pulp.lpSum(l) >= -bias),""
                             else:
-                                prob += (pulp.lpSum(l) <= -bias)
+                                prob += (pulp.lpSum(l) <= -bias),""
                 symInput = sym_conv_relu(symInput, temp)
                 prob.writeLP("Layer{}.lp".format(activationIndex))
             activationIndex = activationIndex + 1
@@ -870,24 +872,44 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
 
+    for attackIndex in range(symInput.shape[2]):
+        if attackIndex == maxIndex:
+            continue
+        # F(2) >= F(0) + epsilon
+        # F(2) - F(0) >= epsilon
+        bias_max = temp[0][0][maxIndex] - sum([symInput[0][0][maxIndex][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims[1]) for x in range(dims[0])])
+        bias_attack = temp[0][0][attackIndex] - sum([symInput[0][0][attackIndex][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims[1]) for x in range(dims[0])])
 
-    attackIndex = 2
-    # F(2) >= F(0) + epsilon
-    # F(2) - F(0) >= epsilon
-    bias_max = temp[0][0][maxIndex] - sum([symInput[0][0][maxIndex][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims[1]) for x in range(dims[0])])
-    bias_attack = temp[0][0][attackIndex] - sum([symInput[0][0][attackIndex][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims[1]) for x in range(dims[0])])
+        l = [(symInput[0][0][attackIndex][x][y]-symInput[0][0][maxIndex][x][y])*pulpInput[x][y] for y in range(dims[1]) for x in range(dims[0])]
 
-    l = [(symInput[0][0][attackIndex][x][y]-symInput[0][0][maxIndex][x][y])*pulpInput[x][y] for y in range(dims[1]) for x in range(dims[0])]
+        if "Attack Constraint" in prob.contraints.keys():
+            del prob.constraints["Attack Constraint"]
+        prob += (pulp.lpSum(l) >= (bias_max - bias_attack)), "Attack Constraint"
+        #Coeffs, coeffs*input
+        #if maxIndex != labelMatrix[inputNumber]:
+        #    print("Error, correct label is", labelMatrix[inputNumber])
+        prob.writeLP("ConvModel_Attack{}.lp".format(attackIndex))
+        print("Starting LP Solving for Attack for label {}".format(attackIndex))
+        prob.solve()
+        print("Status:{}".format(prob.status))
+        if prob.status == 1:
+            print("Optimal solution found!")
+            for v in prob.variables():
+                print(v.name, "=", v.varValue)
+        elif prob.status == 0:
+            print("It's not solved yet?")
+        elif prob.status == -1:
+            print("Infeasible, nonsense results.")
+        elif prob.status == -2:
+            print("Unbounded solution space (which shouldn't apply for images.)")
+        else:
+            print("It's undefined?")
 
-    prob += (pulp.lpSum(l) >= (bias_max - bias_attack))
-    #Coeffs, coeffs*input
-    #if maxIndex != labelMatrix[inputNumber]:
-    #    print("Error, correct label is", labelMatrix[inputNumber])
-    prob.writeLP("ConvModel.lp")
-    prob.solve()
-    prob.writeLP("ConvModelSolved.lp")
-    for v in prob.variables():
-        print(v.name, "=", v.varValue)
+
+
+
+
+
     #plt.figure()
     #plt.imshow(np.multiply(inputMatrix[inputNumber][:,:,0], symInput[0,0,maxIndex]))
     #plt.show()
