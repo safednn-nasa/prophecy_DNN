@@ -882,7 +882,7 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
 
         l = [(symInput[0][0][attackIndex][x][y]-symInput[0][0][maxIndex][x][y])*pulpInput[x][y] for y in range(dims[1]) for x in range(dims[0])]
 
-        if "Attack Constraint" in prob.contraints.keys():
+        if "Attack Constraint" in prob.constraints.keys():
             del prob.constraints["Attack Constraint"]
         prob += (pulp.lpSum(l) >= (bias_max - bias_attack)), "Attack Constraint"
         #Coeffs, coeffs*input
