@@ -873,6 +873,7 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
     maxIndex = classify_ineff(temp);
 
     for attackIndex in range(symInput.shape[2]):
+        #attackIndex = 3
         if attackIndex == maxIndex:
             continue
         # F(2) >= F(0) + epsilon
@@ -880,30 +881,30 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
         bias_max = temp[0][0][maxIndex] - sum([symInput[0][0][maxIndex][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims[1]) for x in range(dims[0])])
         bias_attack = temp[0][0][attackIndex] - sum([symInput[0][0][attackIndex][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims[1]) for x in range(dims[0])])
 
-        l = [(symInput[0][0][attackIndex][x][y]-symInput[0][0][maxIndex][x][y])*pulpInput[x][y] for y in range(dims[1]) for x in range(dims[0])]
+        l = [(-symInput[0][0][attackIndex][x][y]+symInput[0][0][maxIndex][x][y])*pulpInput[x][y] for y in range(dims[1]) for x in range(dims[0])]
 
-        if "Attack Constraint" in prob.constraints.keys():
-            del prob.constraints["Attack Constraint"]
-        prob += (pulp.lpSum(l) >= (bias_max - bias_attack)), "Attack Constraint"
+        #if "Attack Constraint" in prob.constraints.keys():
+        #    del prob.constraints["Attack Constraint"]
+        prob += (pulp.lpSum(l) >= (-bias_max + bias_attack)), "Attack Constraint {}".format(attackIndex)
         #Coeffs, coeffs*input
         #if maxIndex != labelMatrix[inputNumber]:
         #    print("Error, correct label is", labelMatrix[inputNumber])
-        prob.writeLP("ConvModel_Attack{}.lp".format(attackIndex))
-        print("Starting LP Solving for Attack for label {}".format(attackIndex))
-        prob.solve()
-        print("Status:{}".format(prob.status))
-        if prob.status == 1:
-            print("Optimal solution found!")
-            for v in prob.variables():
-                print(v.name, "=", v.varValue)
-        elif prob.status == 0:
-            print("It's not solved yet?")
-        elif prob.status == -1:
-            print("Infeasible, nonsense results.")
-        elif prob.status == -2:
-            print("Unbounded solution space (which shouldn't apply for images.)")
-        else:
-            print("It's undefined?")
+        #prob.writeLP("ConvModel_Attack{}.lp".format(attackIndex))
+        #print("Starting LP Solving for Attack for label {}".format(attackIndex))
+    prob.solve()
+    print("Status:{}".format(prob.status))
+    if prob.status == 1:
+        print("Optimal solution found!")
+        for v in prob.variables():
+            print(v.name, "=", v.varValue)
+    elif prob.status == 0:
+        print("It's not solved yet?")
+    elif prob.status == -1:
+        print("Infeasible, nonsense results.")
+    elif prob.status == -2:
+        print("Unbounded solution space (which shouldn't apply for images.)")
+    else:
+        print("It's undefined?")
 
 
 
