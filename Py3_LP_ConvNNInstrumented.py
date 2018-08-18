@@ -904,15 +904,14 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
             if 'pixel' not in v.name:
                 continue
             print(v.name, "=", v.varValue)
-            name_split = re.split('[_,]',v.name)
-            print("split list:", name_split)
+            #Squishing value between 0 and 1 for numerical stability problems.
             value = np.float64(v.varValue)
             value = 1.0 if value > 1.0 else value
             value = 0.0 if value < 0.0 else value
-            print("value:", value)
+            #Splitting name to get indexes for symbolic variables
+            name_split = re.split('[_,]',v.name)
             x = int(name_split[1])
             y = int(name_split[2])
-            print(x,',',y)
             image[x,y] = value
         plt.imsave('sym_image_no_maxpool_consts_{}.png'.format(inputNumber), image, vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
         print("image saved.")
@@ -1060,7 +1059,7 @@ gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ran
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
 
 
-inputIndex = 0
+inputIndex = 1
 # Read Inputs from example_10.txt which has 10 inputs belonging to  labels 0-9
 #read_inputs_from_file(exampleInputsFile, 28, 28, True)
 #exampleInputMatrix = inputMatrix
