@@ -13,6 +13,7 @@ import PIL.Image
 from random import randint
 from io import StringIO
 from IPython.display import  Image, display
+import re #Regex Library for parsing symbolic input names.
 
 weightMatrix = None
 biasMatrix = None
@@ -337,7 +338,7 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                 max_row = np.int64(max_idx/size)
                 max_col = np.int64(max_idx % size)
                 
-                inputNumber = inputIndex
+                """inputNumber = inputIndex
                 row_len = inputMatrix[inputNumber].shape[0]
                 col_len = inputMatrix[inputNumber].shape[1]
                 bias_max = X[max_row,max_col,k] - sum([symInput[max_row][max_col][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
@@ -352,7 +353,7 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                         #print("l: {}".format(l))
                         #print("bias_low - bias_max: {}".format(bias_low - bias_max))
                         prob += (pulp.lpSum(l) >= (bias_low - bias_max)),""
-
+                """
                 #Max_index denotes the which index is greater than the others within the range size
                 # We can obtain this info and add the symInput result to problem
                 # We need to make problem global though.
@@ -895,8 +896,26 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
     print("Status:{}".format(prob.status))
     if prob.status == 1:
         print("Optimal solution found!")
+        dims = inputMatrix[inputNumber].shape
+        image_dims = (dims[0], dims[1])
+        image = np.zeros(image_dims)
+        print("image shape:",image.shape)
         for v in prob.variables():
+            if 'pixel' not in v.name:
+                continue
             print(v.name, "=", v.varValue)
+            name_split = re.split('[_,]',v.name)
+            print("split list:", name_split)
+            value = np.float64(v.varValue)
+            value = 1.0 if value > 1.0 else value
+            value = 0.0 if value < 0.0 else value
+            print("value:", value)
+            x = int(name_split[1])
+            y = int(name_split[2])
+            print(x,',',y)
+            image[x,y] = value
+        plt.imsave('sym_image_no_maxpool_consts_{}.png'.format(inputNumber), image, vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
+        print("image saved.")
     elif prob.status == 0:
         print("It's not solved yet?")
     elif prob.status == -1:
