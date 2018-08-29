@@ -337,7 +337,7 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                 max_idx = np.argmax(X[rowIndex:rowIndex+size,colIndex:colIndex+size,k])
                 max_row = np.int64(max_idx/size)
                 max_col = np.int64(max_idx % size)
-                
+                """ 
                 inputNumber = inputIndex
                 row_len = inputMatrix[inputNumber].shape[0]
                 col_len = inputMatrix[inputNumber].shape[1]
@@ -353,7 +353,7 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                         #print("l: {}".format(l))
                         #print("bias_low - bias_max: {}".format(bias_low - bias_max))
                         prob += (pulp.lpSum(l) >= (bias_low - bias_max)),""
-                
+                """
                 #Max_index denotes the which index is greater than the others within the range size
                 # We can obtain this info and add the symInput result to problem
                 # We need to make problem global though.
@@ -799,8 +799,7 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
     poolIndex = 0
     activationIndex = 0
     #Pulp Problem
-    prob = pulp.LpProblem("Convolution Problem", pulp.LpMinimize)
-    prob += 1
+    prob = pulp.LpProblem("Convolution Problem", pulp.LpMaximize)
     #Pulp Inputs
     dims = temp.shape
     pulpInput = [[None for _ in range(dims[1])] for _ in range(dims[0])]
@@ -809,10 +808,13 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
             x_ax = str(i).zfill(2)
             y_ax = str(j).zfill(2)
             name = 'pixel_{},{}'.format(x_ax, y_ax)
-            pulpInput[i][j] = pulp.LpVariable(name, lowBound=0.0, upBound=1.0, cat='Continuous')
-            prob += pulpInput[i][j] >= 0.0, "LowBounds_{},{}".format(x_ax, y_ax)
-            prob += pulpInput[i][j] <= 1.0, "UpBounds_{},{}".format(x_ax, y_ax)
-    
+            d_hi = pulp.LpVariable(name+"_hi", lowBound=0.0, upBound=(1.0 - temp[i][j][0]), cat='Continuous')
+            d_lo = pulp.LpVariable(name+"_lo", lowBound=0.0, upBound=temp[i][j][0], cat='Continuous')
+            pulpInput[i][j] = (d_lo, d_hi)
+            #input[i][j][0] is high, input[i][j][1] is low.
+    #Objective function (Maximize sum of all deltas ranges (i,j,0...1))
+    prob += pulp.lpSum([pulpInput[i][j][k] for i in range(dims[0]) for j in range(dims[1]) for k in range(2)])
+
     for layerType in layerTypeList:
         if layerType.lower().startswith("conv"):
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
@@ -836,25 +838,26 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
                 print("SymInput:{}".format(symInput.shape))
                 print("input:{}".format(inputMatrix[inputNumber].shape))
 
-                temp = relu_layer_forward(temp)
-                #Pulp Constraint adding
-                """ dims2 = symInput.shape
+                #Pulp Constraint adding, TO DO for deltas, in the doc for explanation.
+                dims2 = symInput.shape
                 for i in range(dims2[0]):
                     for j in range(dims2[1]):
                         for k in range(dims2[2]):
                             greater_than = temp[i,j,k] > 0.0
                             #ADD BIAS!!!
-                            bias = temp[i][j][k] - sum([symInput[i][j][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims2[4]) for x in range(dims2[3])])
+                            #bias = copytemp[i][j][k] - sum([symInput[i][j][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(dims2[4]) for x in range(dims2[3])])
                             #print("bias:{}".format(bias))
-                            l = [symInput[i][j][k][x][y]*pulpInput[x][y] for y in range(dims2[4]) for x in range(dims2[3])]
                             #print("constraints:{}".format(l))
                             if greater_than:
-                                prob += (pulp.lpSum(l) >= -bias),""
+                                l = [symInput[i][j][k][x][y]*-pulpInput[x][y][0] if symInput[i][j][k][x][y] > 0 else symInput[i][j][k][x][y]*pulpInput[x][y][1] \
+                                    for y in range(dims2[4]) for x in range(dims2[3])]
+                                prob += (pulp.lpSum(l) >= -temp[i][j][k]),""
                             else:
-                                prob += (pulp.lpSum(l) <= -bias),""
-                """
+                                l = [symInput[i][j][k][x][y]*pulpInput[x][y][1] if symInput[i][j][k][x][y] > 0 else symInput[i][j][k][x][y]*-pulpInput[x][y][0] \
+                                    for y in range(dims2[4]) for x in range(dims2[3])]
+                                prob += (pulp.lpSum(l) <= -temp[i][j][k]),""
+                temp = relu_layer_forward(temp)
                 symInput = sym_conv_relu(symInput, temp)
-                prob.writeLP("Layer{}.lp".format(activationIndex))
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
             #inspect_intermediate_output(temp)
@@ -894,10 +897,11 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
         #Coeffs, coeffs*input
         #if maxIndex != labelMatrix[inputNumber]:
         #    print("Error, correct label is", labelMatrix[inputNumber])
-        #prob.writeLP("ConvModel_Attack{}.lp".format(attackIndex))
         #print("Starting LP Solving for Attack for label {}".format(attackIndex))
     """
     prob.solve()
+    prob.writeLP("Delta_Test.lp")
+
     print("Status:{}".format(prob.status))
     if prob.status == 1:
         print("Optimal solution found!")
@@ -913,14 +917,17 @@ def do_all_layers_keras_coeffs(inputNumber, outDir):
             value = np.float64(v.varValue)
             value = 1.0 if value > 1.0 else value
             value = 0.0 if value < 0.0 else value
+            #print(v.name, "=", value)
             #Splitting name to get indexes for symbolic variables
             name_split = re.split('[_,]',v.name)
             x = int(name_split[1])
             y = int(name_split[2])
-            image[x,y] = value
+            image[x,y] += value
         
-        plt.imsave('sym_image_no_maxpool_orig_{}_attack_{}.png'.format(inputNumber, attackNumber), image, cmap='gray', vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
-        #plt.imsave('concrete_image_{}.png'.format(inputNumber), inputMatrix[inputNumber][:,:,0], cmap='gray', vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
+        print ("max_delta_sum:", np.max(image))
+        plt.imsave('sym_image_delta_{}_0-1.png'.format(inputNumber), image, cmap='gray', vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
+        plt.imsave('sym_image_delta_{}_0-max.png'.format(inputNumber), image, cmap='gray', vmin=0.0, format='png', origin='upper', dpi=300)
+        plt.imsave('concrete_image_{}.png'.format(inputNumber), inputMatrix[inputNumber][:,:,0], cmap='gray', vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
         print("image saved.")
     elif prob.status == 0:
         print("It's not solved yet?")
