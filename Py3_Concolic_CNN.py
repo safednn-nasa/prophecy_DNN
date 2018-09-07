@@ -340,27 +340,36 @@ def concolic_pool_layer_sym(X, size, stride = 1):
                 max_row = np.int64(max_idx/size)
                 max_col = np.int64(max_idx % size)
                 
-                """ 
                 inputNumber = inputIndex
                 row_len = inputMatrix[inputNumber].shape[0]
                 col_len = inputMatrix[inputNumber].shape[1]
-                bias_max = X[max_row,max_col,k] - sum([symInput[max_row][max_col][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
 
-                for row_ind in range(rowIndex,rowIndex+size):
-                    for col_ind in range(colIndex,colIndex+size):
+                #print("row, col len:",row_len,",",col_len)
+                #print("max row, col:",max_row,",",max_col)
+                #print("size:",size)
+                #print("X shape:", X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].shape)
+                bias_max = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col] - sum([symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row,max_col][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
+
+                for row_ind in range(size):
+                    for col_ind in range(size):
+                        #print("row, col ind:",row_ind,",",col_ind)
+
                         if row_ind == max_row and col_ind == max_col:
                             continue
-                        bias_low = X[row_ind][col_ind][k] - sum([symInput[row_ind][col_ind][k][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
-                        l = [(symInput[max_row][max_col][k][x][y]-symInput[row_ind][col_ind][k][x][y])*pulpInput[x][y] for y in range(col_len) for x in range(row_len)]
+                        bias_low = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k][row_ind,col_ind] - sum([symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][row_ind,col_ind][x][y]*inputMatrix[inputNumber][x][y][0] for y in range(col_len) for x in range(row_len)])
+                        
+                        #F(max) - F(other) > bias_other - bias_max
+                        #F(max) + bias_max > F(other) + bias_other
+                        l = [(symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row,max_col][x][y]-symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][row_ind,col_ind][x][y])*pulpInput[x][y] for y in range(col_len) for x in range(row_len)]
                         #print("Setting F({},{}) - F({},{})".format(max_row,max_col,row_ind,col_ind))
                         #print("l: {}".format(l))
                         #print("bias_low - bias_max: {}".format(bias_low - bias_max))
                         prob += (pulp.lpSum(l) >= (bias_low - bias_max)),""
-                """
+
                 #Max_index denotes the which index is greater than the others within the range size
                 # We can obtain this info and add the symInput result to problem
                 # We need to make problem global though.
-                #print symInput[i:i+size,j:j+size,k][max_row, max_col].shape
+                #print("SymInput assigned shape" ,symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col].shape)
                 symOut[i,j,k] = symInput[rowIndex:rowIndex+size,colIndex:colIndex+size,k][max_row, max_col]
                 out[i,j,k] = X[rowIndex:rowIndex+size,colIndex:colIndex+size,k].max()
     symInput = symOut
@@ -902,7 +911,7 @@ def do_all_layers_keras_coeffs(inputNumber, outDir, collect=True, attack=True):
             #if maxIndex != labelMatrix[inputNumber]:
             #    print("Error, correct label is", labelMatrix[inputNumber])
             #print("Starting LP Solving for Attack for label {}".format(attackIndex))
-        
+    if collect:
         print("Starting to solve the constraints, last layer label targeting {}".format(attackNumber))
         prob.solve()
         prob.writeLP("ConvModel_image_{}_Attack_label_{}.lp".format(inputNumber,attackNumber))
@@ -1089,10 +1098,12 @@ init(exampleInputsFile, weightsFile, 28, 28, True)
 kerasResult = do_all_layers_keras_coeffs(inputIndex, 'mnist_deep', True, False) #This captures all the relu constraints but none of the attack constraints.
 
 #Concolic part
-print("constCounter:",constCounter)
+print('constCounter:',constCounter)
+
 feasible = list()
 infeasible = list()
-for i in range(1,2**constCounter):
+#for i in range(1,2**constCounter):
+if False:
     prob_copy = copy.deepcopy(prob)
     binarystr = format(i,'b')
     feasible.append(binarystr)
@@ -1102,22 +1113,22 @@ for i in range(1,2**constCounter):
             cnum = str(constCounter - j - 1)
             prob_copy.constraints[cnum].sense = -prob_copy.constraints[cnum].sense
     prob_copy.solve()
-    prob_copy.writeLP("test_orig_{}_bitmap_{}")
+    prob_copy.writeLP('test_orig_{}_bitmap_{}')
     init_symInput(28, 28) #Magic dimensions need parametrization.
     if True:
-        print("{} Status:{}".format(binarystr, prob_copy.status))
+        print('{} Status:{}'.format(binarystr, prob_copy.status))
         if prob_copy.status == 1:
             feasible.append(binarystr)
 
-            print("Optimal solution found!")
+            print('Optimal solution found!')
             dims = inputMatrix[inputIndex].shape
             image_dims = (dims[0], dims[1], 1)
             image = np.zeros(image_dims)
-            print("image shape:",image.shape)
+            print('image shape:',image.shape)
             for v in prob_copy.variables():
                 if 'pixel' not in v.name:
                     continue
-                print(v.name, "=", v.varValue)
+                print(v.name, '=', v.varValue)
                 #Squishing value between 0 and 1 for numerical stability problems.
                 value = np.float64(v.varValue)
                 value = 1.0 if value > 1.0 else value
@@ -1130,78 +1141,10 @@ for i in range(1,2**constCounter):
 
             plt.imsave('sym_orig_{}_bitmap_{}.png'.format(inputIndex, binarystr), image[:,:,0], cmap='gray', vmin=0.0, vmax=1.0, format='png', origin='upper', dpi=300)
             inputMatrix[0] = image
-            print("image saved.")
+            print('image saved.')
             kerasResult = do_all_layers_keras_coeffs(0, 'mnist_deep', False, False) #This just returns us an image that fits the flipped PCs.
         else:
             infeasible.append(binarystr)
-            print("Not feasible or other problems popped up.")
-
-    #Put the results back to a matrix, 
+            print('Not feasible or other problems popped up.')
 
 
-#Get decisions (collect =1) or compare with other inputs (collect=0) for mnist images using mnist_deep network. Read weights from correct meta file to choose between them. 
-#read_weights_from_saved_tf_model(metaFile, checkpoint)
-#Parse mnist_train.csv file
-#init(inputsFile, weightsFile, 28, 28)
-#same = list()
-#inputNumber = 1
-#collect = 0
-#if (collect == 0):
-#    for inputNumber in range(0, 1000):
-#        kerasResult = do_all_layers_keras_dec(inputNumber, collect, 'convnn_relu_exp', same)
-#    print("SAME:")
-#    for ix in range(len(same)):
-#        print(same[ix])
-#if (collect == 1):
-#    kerasResult = do_all_layers_keras_dec(inputNumber, collect, 'convnn_relu_exp', same)
-   
-
-
-
-#do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
-
-#Use this one for differential analysis of mnist_deep and tf_relu networks. Gradient analysis of mnist_deep (and tf_relu, if you really need it) is done in test.py/tf_testing_3()
-#find_closest_input_with_different_label(inputsFile, reluMetaFile, inputIndex, ckpoint=reluCheckpoint)
-
-#Use these for differential and gradient analysis of mnist_alex network.
-#generate_alex_net_mnist_differential_attributions(inputsFile, inputIndex)
-#generate_alex_net_mnist_gradients()
-
-#Use these for differential and gradient analysis of our original relu network.
-#generate_relu_differential_attributions(inputsFile, inputIndex)
-#generate_relu_gradients_and_integrated_grads(inputIndex)
-
-#random_distances_experiment(inputsFile, metaFile, inputIndex=0)
-#sufficient_distance_experiment(inputsFile, metaFile, inputIndex=9)
-#get_percentage_same_ranks(gradientRanksFile, experimentRanksFile)
-
-#Get coefficients for cifar-10 images using alexnet. 
-#read_cifar_inputs(cifarInputsFile)
-#read_weights_from_h5_file(cifarH5File)
-#parse_architecture_and_hyperparams(cifarModelFile)
-#init_3d_symInput(32, 32)
-#kerasResult = do_all_layers_keras_3d(inputIndex, 'cifar_alex')
-
-#generate_alex_net_cifar_differential_attributions(cifarInputsFile, inputIndex)
-
-#for i in range(10):
-#generate_alex_net_cifar_gradients(i)
-
-#Get coefficients for mnist images using (non-tf) relu network.
-#init(exampleInputsFile, weightsFile, 28, 28, True)
-#do_all_layers(inputIndex, 0, 1)
-
-
-#Get coefficients for mnist images using alexnet.
-#read_weights_from_h5_file(h5File)
-#parse_architecture_and_hyperparams(modelFile)
-#init(exampleInputsFile, weightsFile, 28, 28, True)
-#kerasResult = do_all_layers_keras(inputIndex, 'mnist_alex')
-
-#Prints distances between pairs of rank files. Can't use the loop for differential, since the names aren't consistent (0 vs 6, 1 vs 7, etc.)
-#total = 0
-#for i in range(len(exampleInputMatrix)):
-    #d=get_rank_distance_from_files(('./result_images/inputs/Pixel_ranks/mnist_input_image_ranks_%d.txt' % inputIndex), ('./result_images/differential_attributions/mnist_alex/difference_times_input/Pixel_ranks/%d_vs_1_different_coeffs_times_in_ranks.txt'%inputIndex))
-    #print d
-    #total += d
-#print total/10
