@@ -13,6 +13,9 @@ Scalable and more precise than check purely on input space based on a distance m
    v) Differential analysis of coeffs (at feature level) between the original valid input and adversary
 
 3. Debugging and Repair:
+   + execute misclassified concolically see where it first gets outside a "safe region" and focus repair there
+   + perform region analysis on misclassified input and find first neuron (layer) that leads outside region to correct classification
+
    i) Given a set of mis-classified inputs and adversaries (generated as part of safe-region determination), identify 
    nodes that are "suspicious". Statistical score (when evaluated on valid and misclassified inputs for that label).
    ii) Re-train those nodes, by generating inputs that would change the node's decision on the adversarial path.
