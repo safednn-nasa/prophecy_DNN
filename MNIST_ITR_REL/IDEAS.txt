@@ -1,0 +1,21 @@
+1. Compute Safe regions with input bounds. identify layer, node to flip decision.
+Scalable and more precise than check purely on input space based on a distance metric.
+
+2. Attribution: 
+   i) At input layer level: Identify input pixels which impact the decision of the crucial node (based on gradients).
+   ii) At feature level: Identify minimal set of nodes at the identified layer, that are responsible for the 
+      classification decision. 
+   iii) We could perform idea 1 on multiple inputs; belonging to same label, different labels and assign 
+   a coverage based statistical score to the nodes wrt every label. 
+   Higher this score, higher is the node/feature's importance.
+   iv) When the same node is identified as being crucial for multiple inputs; we could increase explanability by looking
+   at the value ranges of the node.
+   v) Differential analysis of coeffs (at feature level) between the original valid input and adversary
+
+3. Debugging and Repair:
+   i) Given a set of mis-classified inputs and adversaries (generated as part of safe-region determination), identify 
+   nodes that are "suspicious". Statistical score (when evaluated on valid and misclassified inputs for that label).
+   ii) Re-train those nodes, by generating inputs that would change the node's decision on the adversarial path.
+   iii) Given an adversary, relax constraints bottom up until ideal label is obtained (with high confidence) and 
+   retrain/repair that node.
+   
