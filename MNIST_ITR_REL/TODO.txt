@@ -1,0 +1,9 @@
+1. Calculate safe input regions covering the training set for all classes.
+2. Ennumerate training inputs for every safe region. Summarize visually or using union of under approximation boxes. 
+
+3. Calculate safe regions at an intermediate layer , do the same analysis.
+4. Can compare the summaries and visualization to see which captures the common features better.
+
+5. Check if the misclassified inputs fall inside existing safe regions.
+
+6. Calculate min max solutions for path constraints (till the output layer).
