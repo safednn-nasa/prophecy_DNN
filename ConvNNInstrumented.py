@@ -9,6 +9,7 @@ import tensorflow as tf
 import cPickle
 import sys
 import PIL.Image
+import csv
 from random import randint
 from cStringIO import StringIO
 from IPython.display import  Image, display
@@ -28,6 +29,8 @@ maxPoolParams = []
 activationTypeList = [] 
 convParams = []
 
+decisionSuffix = []
+
 '''Assumed format of inputs file: list of inputs of size S+1, where the first element is discardable.
 Populates inputMatrix, a matrix of N height-by-width-by-1 3D matrices, where each is an input. To make it N Sx1x1 column vecotrs, replace final nested for loops with final line. For N 1xSx1 row vectors, replace np.transpose(k) with k.'''
 def read_inputs_from_file(inputFile, height, width, plusPointFive=True):
@@ -38,9 +41,9 @@ def read_inputs_from_file(inputFile, height, width, plusPointFive=True):
         inputMatrix = np.empty(len(lines),dtype=list)
         labelMatrix = np.zeros(len(lines),dtype=int)
         for l in range(len(lines)):
-            k = [float(stringIn) for stringIn in lines[l].split(',')[1:]] #This is to remove the useless 1 at the start of each string. Not sure why that's there.
-            inputMatrix[l] = np.zeros((height, width, 1),dtype=float) #we're asuming that everything is 2D for now. The 1 is just to keep numpy happy.
-            labelMatrix[l] = lines[l].split(',')[0]
+            k = [float(stringIn) for stringIn in lines[l].split(',')[1:]] #This is to remove the label at the start of each string.
+            inputMatrix[l] = np.zeros((height, width, 1),dtype=float) #we're asuming that everything is 2D for now. The depth of 1 is just to keep numpy happy.
+            labelMatrix[l] = int(float(lines[l].split(',')[0]))
             count = 0
             for i in range(height):
                 for j in range(width):
@@ -70,7 +73,7 @@ def read_cifar_inputs(inputFile):
                     inputMatrix[i][j, k, l] = data[i, count]
                     count += 1'''
             
-'''Keras models are stored in h5 files, which we can read with this function. It populates weight and bias matrices for both convolutional and fully-connected layers. It doesn't get the strides, zero-pads, architecture, or dimensions of the pooling layers. I don't know how to actively retrieve those from the .h5 file, but if we turn it into a tensorflow model.json (using tensorflowjs), they're in there; need to finish writing the function below for that. Anyway, convWeightMatrix is L entries, where L is the number of convolutional layers, each of shape n_filters x d_filter x h_filter x w_filter (unfortunately the come h x w x d x n, had to tweak that). convBiasMatrix is L entries with as many biases as the respective layer has filters, natch. denseBiasMatrix is much the same just with length M, where M is the number of FC layers, and denseWeightMatrix's M entries are input_length x output_length typical FC weight matrices, they'll need the reshape_fc_weight_matrix treatment. Alternatively, we could implement a flattening function to turn the output of the last convolutional layer into a single-dimensional output.'''
+'''Keras models are stored in h5 files, which we can read with this function. It populates weight and bias matrices for both convolutional and fully-connected layers. It doesn't get the strides, zero-pads, architecture, or dimensions of the pooling layers. I don't know how to actively retrieve those from the .h5 file, but if we turn it into a tensorflow model.json (using tensorflowjs), they're in there; the function below is for that. convWeightMatrix is L entries, where L is the number of convolutional layers, each of shape n_filters x d_filter x h_filter x w_filter (unfortunately they come h x w x d x n, had to tweak that). convBiasMatrix is L entries with as many biases as the respective layer has filters, natch. denseBiasMatrix is much the same just with length M, where M is the number of FC layers, and denseWeightMatrix's M entries are input_length x output_length typical FC weight matrices, they'll need the reshape_fc_weight_matrix treatment. Alternatively, we could implement a flattening function to turn the output of the last convolutional layer into a single-dimensional output.'''
 def read_weights_from_h5_file(h5File):
     global convWeightMatrix, convBiasMatrix, denseWeightMatrix, denseBiasMatrix
     f=h5py.File(h5File,'r')
@@ -104,6 +107,7 @@ def read_weights_from_h5_file(h5File):
             if j.startswith('bias'):
                 convBiasMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
                 convBiasMatrix[layer] = model_weights[k][k][j]
+                print convBiasMatrix[layer].shape
         layer = layer+1
     layer = 0
     for k in dense_layers:
@@ -111,9 +115,11 @@ def read_weights_from_h5_file(h5File):
             if j.startswith('kernel'):
                 denseWeightMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
                 denseWeightMatrix[layer] = np.array(model_weights[k][k][j], dtype=np.float)
+                print denseWeightMatrix[layer].shape
             if j.startswith('bias'):
                 denseBiasMatrix[layer] = np.zeros(model_weights[k][k][j].shape)
                 denseBiasMatrix[layer] = np.array(model_weights[k][k][j], dtype=np.float)
+                print denseBiasMatrix[layer].shape
         layer = layer+1
 
 def parse_architecture_and_hyperparams(jsonFile):
@@ -482,6 +488,7 @@ def sym_conv_layer_forward(input, filters, b, stride=1, padding=1, keras=False):
                 #out[j,k,i] = np.add(out[j,k,i], b[i])
     
     print "Output shape:", out.shape
+    print out
     print ""
     return out
     
@@ -798,32 +805,78 @@ def visualize_attrs_windowing(img, attrs, ptile=99):
 '''This function is used pretty much exclusively for the relu network; do_all_layers_keras was developed for the more general case. Both depend on using the right initialization calls to properly populate the right global variables. This one has the downside of actually reshaping the weightMatrix, so it needs to be re-initialized every time you want to do another call.'''
 def do_all_layers(inputNumber, padding, stride):
     global weightMatrix, symInput
-    temp = inputMatrix[inputNumber]
-    print inputMatrix.shape, weightMatrix.shape
-    print "Input shape is", temp.shape
+    temp = inputMatrix[inputNumber]/255
+    #print inputMatrix.shape, weightMatrix.shape
+    #print "Input shape is", temp.shape
     for i in range(len(weightMatrix)):
         #print "Shape of weight matrix:",weightMatrix[i].shape
         #If we're not doing an FC->Conv conversion, take out this next line
-        weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape)
+        #weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape)
         #weightMatrix[i] = reshape_fc_weight_matrix_keras(weightMatrix[i], temp.shape)
         #print "Shape of weight matrix:",weightMatrix[i].shape
-        temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+        temp = conv_layer_forward_ineff(temp, reshape_fc_weight_matrix(weightMatrix[i], temp.shape), biasMatrix[i], stride, padding)
+        
         if(i != len(weightMatrix)-1):
             temp = relu_layer_forward(temp)
-        symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
+        #symInput = sym_conv_layer_forward(symInput, weightMatrix[i], biasMatrix[i], stride, padding)
         #symInput = relu_layer_forward(symInput)
         #temp = pool_layer_forward_ineff(temp, 1)
-        temp = concolic_pool_layer_forward(temp, 1)
+        #temp = concolic_pool_layer_forward(temp, 1)
         #print temp
-    print symInput.shape
+        
+        #Check invariant
+        if(i == 0):
+            #pass
+            if((temp[0,0,0] > 0 and temp[0,0,1] == 0 and temp[0,0,2] == 0 and temp[0,0,3] > 0 and temp[0,0,4] == 0 and temp[0,0,5] == 0 and temp[0,0,6] == 0 and temp[0,0,7] == 0 and temp[0,0,8] > 0 and temp[0,0,9] == 0) == False):
+                return False
+        if(i == 1):
+            #pass
+            if((temp[0,0,0] == 0 and temp[0,0,1] > 0 and temp[0,0,2] == 0 and temp[0,0,3] == 0 and temp[0,0,4] > 0 and temp[0,0,5] > 0 and temp[0,0,6] == 0 and temp[0,0,7] == 0 and temp[0,0,8] > 0 and temp[0,0,9] == 0) == False):
+                return False
+        if(i == 2):
+            pass
+            #if((temp[0,0,0] == 0 and temp[0,0,1] > 0 and temp[0,0,2] == 0 and temp[0,0,3] > 0 and temp[0,0,4] == 0 and temp[0,0,5] > 0 and temp[0,0,6] > 0 and temp[0,0,7] == 0) == False):
+            if((temp[0,0,0] == 0) == False):
+                return False
+        if(i == 3):
+            pass
+            #if((temp[0,0,0] == 0 and temp[0,0,1] > 0 and temp[0,0,2] == 0 and temp[0,0,3] == 0 and temp[0,0,4] == 0 and temp[0,0,5] > 0 and temp[0,0,6] == 0 and temp[0,0,7] > 0 and temp[0,0,8] > 0 and temp[0,0,9] > 0) == False):
+            #    return False
+        if(i == 4):
+            pass
+            #if((temp[0,0,0] == 0 and temp[0,0,1] == 0 and temp[0,0,2] > 0 and temp[0,0,3] > 0 and temp[0,0,4] == 0 and temp[0,0,5] > 0 and temp[0,0,6] == 0 and temp[0,0,7] > 0 and temp[0,0,8] == 0 and temp[0,0,9] == 0) == False):
+            #    return False
+        if(i == 5):
+            pass
+            #if((temp[0,0,6] > 0 and temp[0,0,4] > 0 and temp[0,0,2] > 0 and temp[0,0,0] == 0 and temp[0,0,1] > 0 and temp[0,0,5] == 0 and temp[0,0,8] == 0) == False):
+            #    return False
+        if(i == 6):
+            pass
+            #if((temp[0,0,9] > 0 and temp[0,0,2] == 0 and temp[0,0,7] == 0 and temp[0,0,4] == 0 and temp[0,0,5] > 0 and temp[0,0,1] == 0) == False):
+            #    return False
+        if(i == 7):
+            pass
+            #if((temp[0,0,0] > 0 and temp[0,0,1] > 0 and temp[0,0,2] == 0 and temp[0,0,3] == 0 and temp[0,0,4] > 0 and temp[0,0,5] == 0 and temp[0,0,6] == 0 and temp[0,0,7] > 0 and temp[0,0,8] > 0 and temp[0,0,9] == 0) == False):
+             #   return False
+        if(i == 8):
+            pass
+            #if((temp[0,0,4] > 0 and temp[0,0,8] > 0 and temp[0,0,6] == 0 and temp[0,0,2] > 0 and temp[0,0,3] > 0 and temp[0,0,0] > 0 and temp[0,0,9] == 0) == False):
+            #    return False
+        if(i == 9):
+            pass
+            #if((temp[0,0,7] > 0 and temp[0,0,0] > 0 and temp[0,0,2] > 0 and temp[0,0,5] > 0 and temp[0,0,8] == 0 and temp[0,0,4] == 0) == False):
+            #    return False
+    #print symInput.shape
     #classify(temp)
     #plt.imshow(inputMatrix[inputNumber][:,:,0])
     maxIndex = classify_ineff(temp)
+    return True
     #Input image
     '''plt.figure()
     plt.imshow(inputMatrix[inputNumber][:,:,0])
     plt.show()'''
     #Coeffs, abs coeffs, coeffs*input
+    
     plt.figure()
     plt.imshow(normalize_to_255(symInput[0,0,maxIndex]))
     plt.savefig('./result_images/coefficient_attributions/relu_network/coefficients/Converted_relu_network_sym_coeffs_%d' % inputNumber)
@@ -1039,7 +1092,7 @@ def do_all_layers_keras_3d(inputNumber, outDir):
             #print convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0]
             # When using the keras file: padding of zero. When using mnist_deep: -1.
             temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
-            symInput = sym_conv_layer_forward_3d(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            #symInput = sym_conv_layer_forward_3d(symInput, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
             convIndex = convIndex + 1
             #inspect_intermediate_output(temp)
             #inspect_3d_sym_input()
@@ -1053,13 +1106,13 @@ def do_all_layers_keras_3d(inputNumber, outDir):
                         print temp[i, j]'''
                 '''for i in range(temp.shape[2]):
                     print temp[:, :, i]'''
-                #symInput = relu_layer_forward(symInput)
+                #symInput = sym_conv_relu(symInput, temp)
             activationIndex = activationIndex + 1
         elif layerType.lower().startswith("maxpool"):
             #inspect_intermediate_output(temp)
             #inspect_3d_sym_input()
-            #temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
-            temp = concolic_pool_layer_forward_3d(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            #temp = concolic_pool_layer_forward_3d(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
             #inspect_intermediate_output(temp)
             #inspect_3d_sym_input()
             poolIndex = poolIndex + 1 
@@ -1068,11 +1121,12 @@ def do_all_layers_keras_3d(inputNumber, outDir):
         elif layerType.lower().startswith("dense"):
             tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
             temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
-            symInput = sym_conv_layer_forward_3d(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            #symInput = sym_conv_layer_forward_3d(symInput, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
             #inspect_3d_sym_input()
             denseIndex = denseIndex + 1
     maxIndex = classify_ineff(temp);
     #symResultImage = np.sum(symInput[0,0,maxIndex], axis=2)
+    return maxIndex == labelMatrix[inputNumber]
     symResultImage = symInput[0,0,maxIndex]
     symTimesIn = np.zeros((32,32,3))
     for i in range(3):
@@ -1115,6 +1169,145 @@ def do_all_layers_keras_3d(inputNumber, outDir):
     if maxIndex != labelMatrix[inputNumber]:
         print "Error, correct label is", labelMatrix[inputNumber]
     return maxIndex
+
+def get_cifar_suffix(inputsFile, inputNumber):
+    read_cifar_inputs(inputsFile)
+    read_weights_from_h5_file(cifarH5File)
+    parse_architecture_and_hyperparams(cifarModelFile)
+    
+    global convWeightMatrix, denseWeightMatrix, decisionSuffix
+    temp = inputMatrix[inputNumber]
+    print "Our input is a", labelMatrix[inputNumber]
+    convIndex = 0
+    denseIndex = 0
+    poolIndex = 0
+    activationIndex = 0
+    prevLayerType = None
+    for layerType in layerTypeList:
+        if layerType.lower().startswith("conv"):
+            temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+            convIndex = convIndex + 1
+            prevLayerType = "conv"
+        elif layerType.lower().startswith("activation"):
+            activationType = activationTypeList[activationIndex].lower()
+            if activationType == 'relu':
+                temp = relu_layer_forward(temp)
+                if prevLayerType == "dense":
+                    print "Collecting decisions..."
+                    decisions = []
+                    for i in temp.flatten():
+                        if i == 0:
+                            decisions.append(1)
+                        else:
+                            decisions.append(0)
+                    decisionSuffix.append(decisions)
+            activationIndex = activationIndex + 1
+            prevLayerType = "relu"
+        elif layerType.lower().startswith("maxpool"):
+            temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+            poolIndex = poolIndex + 1 
+            prevLayerType = "pool"
+        elif layerType.lower().startswith("flatten"):
+            pass
+        elif layerType.lower().startswith("dense"):
+            tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
+            temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+            denseIndex = denseIndex + 1
+            prevLayerType = "dense"
+    maxIndex = classify_ineff(temp);
+    print decisionSuffix
+    if maxIndex != labelMatrix[inputNumber]:
+        print "We misclassified this one, it was a", labelMatrix[inputNumber]
+    
+def find_matching_cifar_suffixes(inputsFile, basisInputIndex, outputsFile):
+    matchingIndices = [basisInputIndex]
+    f = open(outputsFile, 'w')
+    writer = csv.writer(f)
+    inputsConsidered = 0
+    for index in range(len(inputMatrix)):
+        if labelMatrix[index] != labelMatrix[basisInputIndex] or index == basisInputIndex:
+            continue
+        print "Input index:", index
+        f.write('%d\n' % index)
+        inputsConsidered = inputsConsidered + 1
+        print "Inputs considered:", inputsConsidered
+        temp = inputMatrix[index]
+        convIndex = 0
+        denseIndex = 0
+        poolIndex = 0
+        activationIndex = 0
+        tempSuffix = []
+        prevLayerType = None
+        for layerType in layerTypeList:
+            if layerType.lower().startswith("conv"):
+                temp = conv_layer_forward_ineff(temp, convWeightMatrix[convIndex], convBiasMatrix[convIndex], convParams[convIndex]['strides'][0], 0, keras=True)
+                convIndex = convIndex + 1
+                prevLayerType = "conv"
+            elif layerType.lower().startswith("activation"):
+                activationType = activationTypeList[activationIndex].lower()
+                if activationType == 'relu':
+                    temp = relu_layer_forward(temp)
+                    if prevLayerType == "dense":
+                        decisions = []
+                        for i in temp.flatten():
+                            if i == 0:
+                                decisions.append(1)
+                            else:
+                                decisions.append(0)
+                        tempSuffix.append(decisions)
+                        writer.writerow(decisions)
+                activationIndex = activationIndex + 1
+                prevLayerType = "relu"
+            elif layerType.lower().startswith("maxpool"):
+                temp = pool_layer_forward_ineff(temp, maxPoolParams[poolIndex]['pool_size'][0], maxPoolParams[poolIndex]['strides'][0])
+                poolIndex = poolIndex + 1 
+                prevLayerType = "pool"
+            elif layerType.lower().startswith("flatten"):
+                pass
+            elif layerType.lower().startswith("dense"):
+                tempWeightMatrix = reshape_fc_weight_matrix_keras(denseWeightMatrix[denseIndex], temp.shape)
+                temp = conv_layer_forward_ineff(temp, tempWeightMatrix, denseBiasMatrix[denseIndex], 1, 0, keras=True)
+                denseIndex = denseIndex + 1
+                prevLayerType = "dense"
+        if np.array_equal(decisionSuffix, tempSuffix):
+            matchingIndices.append[index]
+            print "Found one!"
+        else:
+            print "Not this one..."
+        print "Matching indices:", matchingIndices
+    print matchingIndices
+    print len(matchingIndices)
+
+def read_cifar_suffixes(suffixesFile):
+    with open(suffixesFile) as f:
+        lines = f.readlines()
+        print len(lines), "suffixes"
+        suffixMatrix = np.empty(len(lines)/2,dtype=list)
+        labelMatrix = np.zeros(len(lines)/2,dtype=int)
+        matchPercents = np.zeros(len(lines)/2, dtype=float)
+        for l in range(0, len(lines)/2):
+            idx = l*2
+            k = [float(stringIn) for stringIn in lines[idx+1].split(',')] 
+            suffixMatrix[l] = k 
+            labelMatrix[l] = int(float(lines[idx].split(',')[0]))
+    for i in range(len(suffixMatrix)):
+        count = 0
+        if len(suffixMatrix[i]) != len(decisionSuffix[0]):
+            print "we have a problem"
+            continue
+        for j in range(len(decisionSuffix[0])):
+            if decisionSuffix[0][j] == suffixMatrix[i][j]:
+                count = count + 1
+        matchPercent = float(count)/float(len(decisionSuffix[0]))*100
+        matchPercents[i] = matchPercent
+        print "Index", labelMatrix[i], " match percent:", matchPercent
+        print "Matches:", count, "/", len(decisionSuffix[0])
+    print "Mean:", np.average(matchPercents)
+    print "Max:", np.amax(matchPercents)
+    print "Min:", np.amin(matchPercents)
+    plt.figure()
+    plt.plot(matchPercents)
+    plt.show()
     
 def do_experiment(inputsFile, weightsFile, metaFile, numberOfImages, outputFile):
     read_weights_from_saved_tf_model(metaFile)
@@ -2045,7 +2238,7 @@ def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
         prediction2 = graph.get_tensor_by_name("import/prediction2:0")
         explanations = graph.get_tensor_by_name("import/explanations:0")
         
-        im_data = normalize_to_1(inputImage)
+        im_data = inputImage
         data = np.ndarray.flatten(im_data)
         feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
         input_result = gradients.eval(feed_dict=feed_dict)
@@ -2053,7 +2246,7 @@ def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
         for i in range(len(inputMatrix)):
             if labelMatrix[i] == correctLabel:
                 continue
-            im_data = normalize_to_1(inputMatrix[i])
+            im_data = inputMatrix[i]
             data = np.ndarray.flatten(im_data)
             feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
             image_result = gradients.eval(feed_dict=feed_dict)
@@ -2114,6 +2307,145 @@ def generate_alex_net_cifar_differential_attributions(inputsFile, inputIndex):
     #plt.savefig('./result_images/differential_attributions/cifar_alex/difference_times_input/Pixel_ranks/%d_vs_%d_different_coeffs_times_in_ranked' % (correctLabel, labelMatrix[closestImageIndex]))
     plt.close()
     #plt.show()
+    return closestImageIndex
+
+def generate_alex_net_cifar_differential_attributions_2(inputsFile, inputIndex):
+    '''Generates differential attributions for the given input file based on proximity
+    of all gradients pre-softmax.'''
+    read_cifar_inputs(inputsFile)
+    read_weights_from_h5_file(cifarH5File)
+    parse_architecture_and_hyperparams(cifarModelFile)
+    
+    inputImage = inputMatrix[inputIndex]
+    correctLabel = labelMatrix[inputIndex]
+    print "Our image is a", correctLabel
+    closestImageIndex = None
+    minDistance = 255*inputImage.shape[0]*inputImage.shape[1]
+    
+    graph = tf.Graph()
+    with tf.Session() as sess:
+        imported_graph = tf.train.import_meta_graph('tf_models_cifar_alex/cifar_alex.meta')
+        imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models_cifar_alex'))
+        graph = tf.get_default_graph()
+
+        x = graph.get_tensor_by_name("import/x:0")
+        W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+        b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+        W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+        b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+        W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+        b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+        W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+        b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+        W_fc1 = graph.get_tensor_by_name("import/W_fc1:0")
+        b_fc1 = graph.get_tensor_by_name("import/b_fc1:0")
+        W_fc2 = graph.get_tensor_by_name("import/W_fc2:0")
+        b_fc2 = graph.get_tensor_by_name("import/b_fc2:0")
+        gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+        gradients = graph.get_tensor_by_name("import/gradients:0")
+        prediction = graph.get_tensor_by_name("import/prediction:0")
+        prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+        explanations = graph.get_tensor_by_name("import/explanations:0")
+        y_conv = graph.get_tensor_by_name("import/y_conv:0")
+        outputIndex = tf.placeholder(np.int32)
+        specified_gradients = tf.gradients(y_conv[0,outputIndex], x)
+        
+        im_data = inputImage
+        data = np.ndarray.flatten(im_data)
+        inputGradients = np.empty(10, dtype=list)
+        inputResult = -1
+        for i in range(10):
+            feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1], outputIndex: i}
+            input_result = np.array(sess.run(specified_gradients, feed_dict))
+            inputGradients[i] = input_result.reshape((32,32,3))
+        inputResult = np.argmax(y_conv.eval(feed_dict))
+        print y_conv.eval(feed_dict)
+        print "Prediction:", inputResult
+        if inputResult != correctLabel:
+            print "Error! This input image is unusable, as the network misclassifies it."
+            return
+        
+        closestResult = -1
+        for i in range(len(inputMatrix)):
+            if labelMatrix[i] == correctLabel:
+                continue
+            imageGradients = np.empty(10, dtype=list)
+            distance = 0
+            im_data = inputMatrix[i]
+            data = np.ndarray.flatten(im_data)
+            for j in range(10):
+                feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1], outputIndex: j}
+                image_result = np.array(sess.run(specified_gradients, feed_dict))
+                imageGradients[j] = image_result.reshape((32,32,3))
+                distance += manhattan_distance(inputGradients[j], imageGradients[j])
+            if np.argmax(y_conv.eval(feed_dict)) != labelMatrix[i]:
+                continue
+            distance = distance/10
+            if distance < minDistance:
+                minDistance = distance
+                print distance, i
+                closestImageIndex = i
+                closestGradients = imageGradients
+                closestResult = np.argmax(y_conv.eval(feed_dict))
+            elif distance == minDistance:
+                print "Image", i, "has the same distance as our current closest"
+    print "Our closest image is a", labelMatrix[closestImageIndex]
+    print "It has a distance of", minDistance
+    print "Closest image index:", closestImageIndex
+        
+    plt.figure()
+    plt.imshow(inputMatrix[closestImageIndex])
+    plt.savefig('./result_images/differential_attributions/multi_index_analysis/cifar_alex/closest_gradients_images/%d\'s_closest_image' % inputIndex) # Just for reference
+    plt.close()
+        
+    #The actual differential analyses. (grad of node1 * value - grad' of node1 * value') + (grad' of node2 * value' - grad of node2 * value)
+    closestImage = inputMatrix[closestImageIndex]
+    attrs11 = np.clip(inputGradients[inputResult] / np.percentile(abs(gray_scale(inputGradients[inputResult])), 99), 0,1)
+    term11 = inputImage*attrs11
+    attrs12 = np.clip(closestGradients[inputResult] / np.percentile(abs(gray_scale(closestGradients[inputResult])), 99), 0,1)
+    term12 = closestImage*attrs12
+    attrs21 = np.clip(closestGradients[closestResult] / np.percentile(abs(gray_scale(closestGradients[closestResult])), 99), 0,1)
+    term21 = closestImage*attrs21
+    attrs22 = np.clip(inputGradients[closestResult] / np.percentile(abs(gray_scale(inputGradients[closestResult])), 99), 0,1)
+    term22 = inputImage*attrs22
+    term1 = term11 - term12
+    #plt.imshow(term1)
+    #plt.show()
+    term2 = term21 - term22
+    #plt.imshow(term2)
+    #plt.show()
+    attribution = term1 + term2
+    #plt.imshow(attribution)
+    #plt.show()
+    plt.imshow(attribution)
+    plt.savefig('./result_images/differential_attributions/multi_index_analysis/cifar_alex/%d_vs_%d_important_coeffs' % (inputIndex, closestImageIndex))
+    write_image_to_file(attribution, './result_images/differential_attributions/multi_index_analysis/cifar_alex/%d_vs_%d_important_coeffs.txt' % (inputIndex, closestImageIndex))
+    write_pixel_ranks_to_file(attribution, './result_images/differential_attributions/multi_index_analysis/cifar_alex/Pixel_ranks/%d_vs_%d_important_coeffs_ranks.txt' % (inputIndex, closestImageIndex))
+    plt.close()
+    
+    attributionTimesIn = visualize_attrs_windowing(inputImage, attribution)
+    attributionTimesIn.save('./result_images/differential_attributions/multi_index_analysis/cifar_alex/times_in/%d_vs_%d_important_coeffs_times_in.png' % (inputIndex, closestImageIndex))
+    attrs = gray_scale(attribution)
+    attrs = abs(attrs)
+    attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
+    vis = inputImage*attrs
+    write_image_to_file(vis, './result_images/differential_attributions/multi_index_analysis/cifar_alex/times_in/%d_vs_%d_important_coeffs_times_in.txt' % (inputIndex, closestImageIndex))
+    write_pixel_ranks_to_file(vis, './result_images/differential_attributions/multi_index_analysis/cifar_alex/times_in/Pixel_ranks/%d_vs_%d_important_coeffs_times_in_ranks.txt' % (inputIndex, closestImageIndex))
+    #plt.show()
+    
+    #(grad of label node - grad' of label node) + (grad' of other_label node - grad of other_label node)
+    term1 = np.subtract(inputGradients[inputResult], closestGradients[inputResult])
+    term2 = np.subtract(closestGradients[closestResult], inputGradients[closestResult])
+    attribution2 = visualize_attrs_windowing(inputImage, np.add(term1, term2))
+    plt.imshow(attribution2)
+    attribution2.save('./result_images/differential_attributions/multi_index_analysis/cifar_alex/just_grads/%d_vs_%d_important_coeffs_times_in.png' % (inputIndex, closestImageIndex))
+    attrs = gray_scale(np.add(term1, term2))
+    attrs = abs(attrs)
+    attrs = np.clip(attrs/np.percentile(attrs, 99), 0,1)
+    vis = inputImage*attrs
+    write_image_to_file(vis, './result_images/differential_attributions/multi_index_analysis/cifar_alex/just_grads/%d_vs_%d_important_coeffs_times_in.txt' % (inputIndex, closestImageIndex))
+    write_pixel_ranks_to_file(vis, './result_images/differential_attributions/multi_index_analysis/cifar_alex/just_grads/Pixel_ranks/%d_vs_%d_important_coeffs_times_in_ranks.txt' % (inputIndex, closestImageIndex))
+    plt.close()
     return closestImageIndex
         
 def generate_alex_net_cifar_gradient_differentials(inputsFile, inputIndex):
@@ -2394,7 +2726,70 @@ def generate_relu_gradients_and_integrated_grads(inputIndex):
         write_image_to_file(result.reshape((28,28)), './result_images/integrated_gradients/relu_network/integrated_gradients_%d.txt' % inputIndex)
         write_pixel_ranks_to_file(result.reshape(28,28), './result_images/integrated_gradients/relu_network/Pixel_ranks/integrated_gradients_ranks_%d.txt' % inputIndex)
 
-weightsFile = "./mnist_3A_layer.txt"
+def create_labeled_input_files(inputsFile):
+    read_inputs_from_file(inputsFile, 28, 28, False)
+    
+    with open("mnist_train0.csv", 'w') as f0:
+        with open("mnist_train2.csv", 'w') as f2:
+            with open("mnist_train4.csv", 'w') as f4:
+                with open("mnist_train6.csv", 'w') as f6:
+                    with open("mnist_train8.csv", 'w') as f8:
+                        writer0 = csv.writer(f0)
+                        writer2 = csv.writer(f2)
+                        writer4 = csv.writer(f4)
+                        writer6 = csv.writer(f6)
+                        writer8 = csv.writer(f8)
+                        for i in range(len(inputMatrix)):
+                            if labelMatrix[i] == 0:
+                                writer0.writerow(inputMatrix[i].flatten()/255)
+                            elif labelMatrix[i] == 2:
+                                writer2.writerow(inputMatrix[i].flatten()/255)
+                            elif labelMatrix[i] == 4:
+                                writer4.writerow(inputMatrix[i].flatten()/255)
+                            elif labelMatrix[i] == 6:
+                                writer6.writerow(inputMatrix[i].flatten()/255)
+                            elif labelMatrix[i] == 8:
+                                writer8.writerow(inputMatrix[i].flatten()/255)
+
+def do_all_layers_decs(inputNumber, padding, stride,collect):
+    global weightMatrix
+    temp = inputMatrix[inputNumber]
+    for i in range(len(weightMatrix)):
+        if (inputNumber == 0):
+            weightMatrix[i] = reshape_fc_weight_matrix(weightMatrix[i], temp.shape)
+        temp = conv_layer_forward_ineff(temp, weightMatrix[i], biasMatrix[i], stride, padding)
+      
+        if(i != len(weightMatrix)-1):
+           temp = relu_layer_forward(temp)
+           # JUST PRINTING OUT THE LAYER AND DECISION PATTERN      
+           print "LAYER:",i
+           for ix in range(0,len(temp)):
+              for iy in range(0,len(temp[ix])):
+                 for iz in range(0,len(temp[ix][iy])):
+                    print(ix,iy,iz, temp[ix][iy][iz])
+                    # HARD CODED THE DECISION PATTERN OF THE SAFE REGION
+                    if (i == 0):
+                       if ((iz == 0) or (iz == 1) or (iz == 4) or (iz == 5) or (iz == 9)):
+                          if ((temp[ix][iy][iz] == 0.0) or (temp[ix][iy][iz] == -0.0)):
+                             #print "not this one"
+                             return -1
+ 
+                       else:
+                          if (temp[ix][iy][iz] > 0.0):
+                             #print "not this one"
+                             return -1
+ 
+                    if ( i == 1):
+                       if (iz <= 5):
+                          if (temp[ix][iy][iz] > 0.0):
+                              #print "not this one"
+                              return -1
+ 
+    maxIndex = classify_ineff(temp)
+   
+    return inputNumber
+
+weightsFile = "./mnist_10_layer.txt"
 inputsFile = "./mnist_test.csv"
 exampleInputsFile = "./example_10.txt"
 cifarInputsFile = "./cifar-10-batches-py/test_batch"
@@ -2416,18 +2811,43 @@ reluFrameworkCheckpoint = "./tf_models_relu_framework"
 alexCheckpoint = "./tf_models_alex"
 gradientRanksFile = "./result_images/gradient_test/gradient_test_pre_softmax_ranks_0.txt"
 experimentRanksFile = "./result_images/mnist_deep/pixel_ranks/mnist_deep_sym_coeffs_ranks_0.txt"
-inputIndex = 9
+suffixesFile = "cifarTestIndex0Outputs.csv"
+inputIndex = 0
 
-read_inputs_from_file(exampleInputsFile, 28, 28, True)
+#read_inputs_from_file("./mnist_train1.csv", 28, 28, True)
 #exampleInputMatrix = np.multiply(255, inputMatrix)
-exampleInputMatrix = inputMatrix
-labelMatrix = np.arange(10)
+#exampleInputMatrix = inputMatrix
+#labelMatrix = np.arange(10)
+
+#get_cifar_suffix(cifarInputsFile, 0)
+#find_matching_cifar_inputs(cifarInputsFile, 0, "cifarTrainIndex0Outputs.csv")
+
+#get_cifar_suffix(cifarInputsFile, 0)
+#read_cifar_suffixes(suffixesFile)
+
+#weightsFile = "./mnist_10_layer.txt"
+#exampleInputsFile = "./mnist_train0.csv" #TRAINING INPUTS FROM FULL TRAINING SET WITH LABEL 1
+#Get coefficients for mnist images using (non-tf) relu network.
+#init(exampleInputsFile, weightsFile, 28, 28, False)
+#matchingIndices = []
+#for inputIndex in range(0, len(inputMatrix)):
+#        inp = do_all_layers_decs(inputIndex, 0, 1, 0)  
+#        if (inp != -1):
+#            print("INPUT NUMBER,", inp)
+#            matchingIndices.append(inp)
+#print matchingIndices
+
+#init("./mnist_train1_shrt.csv", "./mnist_8_layer.txt", 1, 10, False)
+#do_all_layers(inputIndex, 0, 1)
+
+#init("./mnist_train1.csv", "./mnist_10_layer.txt", 28, 28, False)
+#do_all_layers(inputIndex, 0, 1)
 
 #do_experiment(inputsFile, weightsFile, metaFile, 50, "./out.txt")
 
 #Use this one for differential analysis of mnist_deep and tf_relu networks. Gradient analysis of mnist_deep (and tf_relu, if you really need it) is done in test.py/tf_testing_3()
 #find_closest_input_with_different_label(inputsFile, reluMetaFile, inputIndex, ckpoint=reluCheckpoint)
-find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex, ckpoint=checkpoint)
+#find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex, ckpoint=checkpoint)
 #generate_gradient_differential(inputsFile, metaFile, inputIndex, ckpoint=checkpoint, outputDir='mnist_deep')
 
 #Use these for differential and gradient analysis of mnist_alex network.
@@ -2443,13 +2863,57 @@ find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex, ckpo
 #get_percentage_same_ranks(gradientRanksFile, experimentRanksFile)
 
 #Get coefficients for cifar-10 images using alexnet. 
-#read_cifar_inputs(cifarInputsFile)
-#read_weights_from_h5_file(cifarH5File)
-#parse_architecture_and_hyperparams(cifarModelFile)
+'''read_cifar_inputs('./cifar-10-batches-py/data_batch_5')
+read_weights_from_h5_file(cifarH5File)
+parse_architecture_and_hyperparams(cifarModelFile)
+graph = tf.Graph()
+total_correct = 0'''
+'''with tf.Session() as sess:
+    imported_graph = tf.train.import_meta_graph('tf_models_cifar_alex/cifar_alex.meta')
+    imported_graph.restore(sess, tf.train.latest_checkpoint('./tf_models_cifar_alex'))
+    graph = tf.get_default_graph()
+    convLayer = 0
+    denseLayer = 0
+    x = graph.get_tensor_by_name("import/x:0")
+    W_conv1 = graph.get_tensor_by_name("import/W_conv1:0")
+    b_conv1 = graph.get_tensor_by_name("import/b_conv1:0")
+    W_conv2 = graph.get_tensor_by_name("import/W_conv2:0")
+    b_conv2 = graph.get_tensor_by_name("import/b_conv2:0")
+    W_conv3 = graph.get_tensor_by_name("import/W_conv3:0")
+    b_conv3 = graph.get_tensor_by_name("import/b_conv3:0")
+    W_conv4 = graph.get_tensor_by_name("import/W_conv4:0")
+    b_conv4 = graph.get_tensor_by_name("import/b_conv4:0")
+    W_fc1 = graph.get_tensor_by_name("import/W_fc1:0")
+    b_fc1 = graph.get_tensor_by_name("import/b_fc1:0")
+    W_fc2 = graph.get_tensor_by_name("import/W_fc2:0")
+    b_fc2 = graph.get_tensor_by_name("import/b_fc2:0")
+    y_conv = graph.get_tensor_by_name("import/y_conv:0")
+    gradients_pre_softmax = graph.get_tensor_by_name("import/gradients_pre_softmax:0")
+    gradients = graph.get_tensor_by_name("import/gradients:0")
+    prediction = graph.get_tensor_by_name("import/prediction:0")
+    prediction2 = graph.get_tensor_by_name("import/prediction2:0")
+    explanations = graph.get_tensor_by_name("import/explanations:0")
+        
+    for i in range(len(inputMatrix)):
+        im_data = inputMatrix[i]
+        data = np.ndarray.flatten(im_data)
+        feed_dict = {x:[data], W_conv1: convWeightMatrix[0], b_conv1: convBiasMatrix[0], W_conv2: convWeightMatrix[1], b_conv2: convBiasMatrix[1], W_conv3: convWeightMatrix[2], b_conv3: convBiasMatrix[2], W_conv4: convWeightMatrix[3], b_conv4: convBiasMatrix[3], W_fc1: denseWeightMatrix[0], b_fc1: denseBiasMatrix[0], W_fc2: denseWeightMatrix[1], b_fc2: denseBiasMatrix[1]}
+        base_result = y_conv.eval(feed_dict)
+        if(np.argmax(base_result[0]) == labelMatrix[i]):
+            total_correct += 1
+    print total_correct'''
+
+
 #init_3d_symInput(32, 32)
-#kerasResult = do_all_layers_keras_3d(inputIndex, 'cifar_alex')
+'''for i in range(10000):
+    kerasResult = do_all_layers_keras_3d(i, 'cifar_alex')
+    if kerasResult == True:
+        total_correct += 1
+    print "So far: ", total_correct, "/", i
+print total_correct'''
 
 #generate_alex_net_cifar_differential_attributions(cifarInputsFile, inputIndex)
+#generate_alex_net_cifar_differential_attributions_2(cifarInputsFile, inputIndex)
 #generate_alex_net_cifar_gradient_differentials(cifarInputsFile, inputIndex)
 
 #for i in range(10):
@@ -2461,8 +2925,13 @@ find_closest_input_with_different_label_2(inputsFile, metaFile, inputIndex, ckpo
     img.show()'''
 
 #Get coefficients for mnist images using (non-tf) relu network.
-#init(exampleInputsFile, weightsFile, 28, 28, True)
-#do_all_layers(inputIndex, 0, 1)
+#Check invariants.
+init('mnist_train.csv', "mnist_10_layer.txt", 28, 28, False)
+j = 0
+for i in range(60000):
+    if(do_all_layers(i, 0, 1) == True):
+        j = j+1
+print j
 
 #Get coefficients for mnist images using tf_relu or mnist_deep networks. Read weights from correct meta file to choose between them.. 
 #read_weights_from_saved_tf_model(metaFile, ckpoint=checkpoint)
