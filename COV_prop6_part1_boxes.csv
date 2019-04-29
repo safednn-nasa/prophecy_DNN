@@ -1,4 +1,4 @@
-,0,1,2,3,4,5,6,7,8,9
+,RANGE_high,RANGE_low,angle of intruder relative to ownship_high,angle of intruder relative to ownship_low,heading angle of intruder_high,heading angle of intruder_low,speed of ownship_high,speed of ownship_low,speed of intruder_high,speed of intruder_high,speed of intruder_low
 0,0.034055324,-0.0037874549,0.26134396,0.250001,-0.5,-0.5,-0.32654493,-0.5,-0.46470183,-0.5
 1,0.100096,0.045971282,0.29755148,0.250001,-0.4992,-0.5,-0.34348382,-0.5,-0.47275779,-0.5
 2,0.200941,0.065218036,0.32921639,0.250001,-0.4992,-0.5,-0.40599694,-0.5,-0.48251565,-0.5
